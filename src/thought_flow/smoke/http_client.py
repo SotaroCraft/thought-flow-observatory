@@ -63,8 +63,17 @@ class RequestBudget:
     max_attempts: int = OPENALEX_MAX_HTTP_ATTEMPTS
     max_cost_usd: float = OPENALEX_COST_CEILING_USD
     attempts_used: int = 0
-    cost_usd: float = 0.0
+    # Sum of source-reported costs only; None until at least one cost is observed.
+    cost_usd: float | None = None
+    cost_report_count: int = 0
     stop_reason: str | None = None
+
+    @property
+    def reported_cost_usd(self) -> float | None:
+        """Null when the source never reported cost; never coerce unknown to 0.0."""
+        if self.cost_report_count <= 0:
+            return None
+        return self.cost_usd if self.cost_usd is not None else None
 
     def can_request(self) -> bool:
         if self.stop_reason:
@@ -72,7 +81,11 @@ class RequestBudget:
         if self.attempts_used >= self.max_attempts:
             self.stop_reason = "http_attempt_ceiling"
             return False
-        if self.cost_usd >= self.max_cost_usd:
+        if (
+            self.cost_report_count > 0
+            and self.cost_usd is not None
+            and self.cost_usd >= self.max_cost_usd
+        ):
             self.stop_reason = "cost_ceiling"
             return False
         return True
@@ -80,10 +93,17 @@ class RequestBudget:
     def register(self, *, attempts: int, cost_usd: float | None) -> None:
         self.attempts_used += attempts
         if cost_usd is not None:
+            if self.cost_usd is None:
+                self.cost_usd = 0.0
             self.cost_usd += cost_usd
+            self.cost_report_count += 1
         if self.attempts_used >= self.max_attempts:
             self.stop_reason = self.stop_reason or "http_attempt_ceiling"
-        if self.cost_usd >= self.max_cost_usd:
+        if (
+            self.cost_report_count > 0
+            and self.cost_usd is not None
+            and self.cost_usd >= self.max_cost_usd
+        ):
             self.stop_reason = self.stop_reason or "cost_ceiling"
 
 

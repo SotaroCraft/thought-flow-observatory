@@ -25,7 +25,14 @@ from thought_flow.smoke.quality import QUALITY_STATES
 
 
 def test_frozen_quality_states() -> None:
-    assert QUALITY_STATES == {"zero", "missing", "unknown", "fetch_failure", "partial"}
+    assert QUALITY_STATES == {
+        "success",
+        "zero",
+        "missing",
+        "unknown",
+        "fetch_failure",
+        "partial",
+    }
 
 
 def test_openalex_ceilings_match_spec() -> None:
@@ -113,6 +120,32 @@ def test_request_ceiling_stops() -> None:
     client.get("https://example.test/2")
     with pytest.raises(RuntimeError, match="ceiling|budget"):
         client.get("https://example.test/3")
+
+
+def test_unknown_reported_cost_is_null_not_zero() -> None:
+    budget = RequestBudget(max_attempts=5, max_cost_usd=10.0)
+
+    def transport(url: str, headers: dict[str, str], timeout: float):
+        return 200, {}, b"{}"
+
+    client = SmokeHttpClient(budget=budget, transport=transport, sleep_fn=lambda **_: None)
+    client.get("https://example.test/1")
+    assert budget.cost_report_count == 0
+    assert budget.reported_cost_usd is None
+    assert budget.reported_cost_usd != 0.0
+
+
+def test_source_reported_cost_is_summed() -> None:
+    budget = RequestBudget(max_attempts=5, max_cost_usd=10.0)
+
+    def transport(url: str, headers: dict[str, str], timeout: float):
+        return 200, {"X-API-Cost": "0.02"}, b"{}"
+
+    client = SmokeHttpClient(budget=budget, transport=transport, sleep_fn=lambda **_: None)
+    client.get("https://example.test/1")
+    client.get("https://example.test/2")
+    assert budget.reported_cost_usd == pytest.approx(0.04)
+    assert budget.cost_report_count == 2
 
 
 def _page(results: list[dict[str, Any]], count: int, next_cursor: str | None = None) -> bytes:
@@ -229,11 +262,13 @@ def test_synthetic_openalex_runner_append_only_and_privacy(tmp_path) -> None:
     for row in denom_rows:
         assert row["source_total"] == 42
         assert row["observation_complete"] is True
+        assert row["quality_state"] == "success"
         assert row["quality_state"] != "partial"
 
     # Quality states used are subset of frozen set.
     for row in runner.coverage:
         assert row["quality_state"] in QUALITY_STATES
+    assert summary1["reported_cost_usd"] is None
 
 
 def test_retain_cap_marks_partial(tmp_path) -> None:
@@ -308,9 +343,42 @@ def test_complete_small_population_is_not_partial(tmp_path) -> None:
     assert cell.matched_count >= 1
     assert cell.truncation is False
     assert cell.observation_complete is True
+    assert cell.quality_state == "success"
     assert cell.quality_state != "partial"
+    assert cell.quality_state != "missing"
     assert cell.source_total is None
     assert cell.phrase_source_counts.get("generative AI") == 1
+
+
+def test_complete_zero_theme_is_zero(tmp_path) -> None:
+    def transport(url: str, headers: dict[str, str], timeout: float):
+        lower = url.lower()
+        if "search=" not in lower:
+            return 200, {}, _page([], count=0)
+        if "countries:us" in lower or "countries%3aus" in lower:
+            return 200, {}, _page([_work("W1", "Unrelated hydrology paper", ["US"])], count=1)
+        return 200, {}, _page([], count=0)
+
+    http = SmokeHttpClient(transport=transport, sleep_fn=lambda **_: None)
+    runner = OpenAlexSmokeRunner(data_root=tmp_path / "ws", code_revision="test", http=http)
+    from thought_flow.smoke.periods import OA_START
+
+    cell = runner._run_theme_cell(country="US", theme="generative_ai", period=OA_START)
+    assert cell.observation_complete is True
+    assert cell.matched_count == 0
+    assert cell.quality_state == "zero"
+
+
+def test_fetch_failure_quality_state(tmp_path) -> None:
+    def transport(url: str, headers: dict[str, str], timeout: float):
+        return 503, {}, b"unavailable"
+
+    http = SmokeHttpClient(transport=transport, sleep_fn=lambda **_: None)
+    runner = OpenAlexSmokeRunner(data_root=tmp_path / "ws", code_revision="test", http=http)
+    from thought_flow.smoke.periods import OA_START
+
+    cell = runner._run_denominator(country="US", period=OA_START)
+    assert cell.quality_state == "fetch_failure"
 
 
 def test_denominator_uses_per_page_one(tmp_path) -> None:
@@ -326,5 +394,7 @@ def test_denominator_uses_per_page_one(tmp_path) -> None:
 
     cell = runner._run_denominator(country="US", period=OA_START)
     assert cell.source_total == 7
+    assert cell.quality_state == "success"
     assert cell.quality_state != "partial"
+    assert cell.quality_state != "missing"
     assert any("per-page=1" in u or "per-page%3D1" in u for u in seen)

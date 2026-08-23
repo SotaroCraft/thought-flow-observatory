@@ -39,7 +39,7 @@ from thought_flow.smoke.periods import (
     SmokePeriod,
 )
 from thought_flow.smoke.progress import progress
-from thought_flow.smoke.quality import QualityState
+from thought_flow.smoke.quality import QualityState, page_query_quality_state
 from thought_flow.smoke.vocabulary import (
     classify_title_and_abstract,
     load_provisional_vocabulary,
@@ -235,7 +235,7 @@ class OpenAlexSmokeRunner:
                 "phase": "openalex_phase1",
                 "execution_mode": mode,
                 "http_attempts_used": self.budget.attempts_used,
-                "reported_cost_usd": self.budget.cost_usd,
+                "reported_cost_usd": self.budget.reported_cost_usd,
                 "cost_ceiling_usd": self.budget.max_cost_usd,
                 "stop_reason": self.terminal_stop,
                 "coverage_rows": len(self.coverage),
@@ -265,7 +265,7 @@ class OpenAlexSmokeRunner:
                 "failure_category": type(exc).__name__,
                 "failure_message": str(exc)[:500],
                 "http_attempts_used": self.budget.attempts_used,
-                "reported_cost_usd": self.budget.cost_usd,
+                "reported_cost_usd": self.budget.reported_cost_usd,
                 "stop_reason": self.terminal_stop or self.budget.stop_reason,
                 "artifact_root": str(self.paths.run_dir),
             }
@@ -337,7 +337,11 @@ class OpenAlexSmokeRunner:
             search=None,
             page_index=1,
             meta=meta,
-            quality_state="zero" if meta.get("status_code", 500) < 400 else "fetch_failure",
+            quality_state=page_query_quality_state(
+                status_code=meta.get("status_code"),
+                source_total=(payload.get("meta") or {}).get("count"),
+                error=meta.get("error") or payload.get("error"),
+            ),
             source_total=(payload.get("meta") or {}).get("count"),
         )
         result.pages_used = 1
@@ -359,8 +363,8 @@ class OpenAlexSmokeRunner:
             result.observation_complete = True
             result.stop_reason = None
         else:
-            # Full count observed; theme not applicable to denominator cell.
-            result.quality_state = "missing"
+            # Full count observed with nonzero qualifying results (Erratum-001).
+            result.quality_state = "success"
             result.truncation = False
             result.observation_complete = True
             result.stop_reason = "denominator_count_observed"
@@ -444,7 +448,12 @@ class OpenAlexSmokeRunner:
                 search=phrase,
                 page_index=pages_used,
                 meta=meta,
-                quality_state="fetch_failure" if meta.get("status_code", 500) >= 400 else "zero",
+                quality_state=page_query_quality_state(
+                    status_code=meta.get("status_code"),
+                    source_total=(payload.get("meta") or {}).get("count"),
+                    result_count=len(payload.get("results") or []),
+                    error=meta.get("error") or payload.get("error"),
+                ),
                 source_total=(payload.get("meta") or {}).get("count"),
             )
             if meta.get("status_code", 500) >= 400 or payload.get("error"):
@@ -517,7 +526,12 @@ class OpenAlexSmokeRunner:
                 search=phrase,
                 page_index=pages_used,
                 meta=meta,
-                quality_state="fetch_failure" if meta.get("status_code", 500) >= 400 else "zero",
+                quality_state=page_query_quality_state(
+                    status_code=meta.get("status_code"),
+                    source_total=phrase_first_totals.get(phrase),
+                    result_count=len(payload.get("results") or []),
+                    error=meta.get("error") or payload.get("error"),
+                ),
                 source_total=phrase_first_totals.get(phrase),
             )
             if meta.get("status_code", 500) >= 400 or payload.get("error"):
@@ -621,8 +635,8 @@ class OpenAlexSmokeRunner:
             result.observation_complete = True
             result.stop_reason = None
         else:
-            # Complete observation with nonzero qualifying results — not partial.
-            result.quality_state = "missing"
+            # Complete observation with nonzero qualifying results (Erratum-001).
+            result.quality_state = "success"
             result.truncation = False
             result.observation_complete = True
             result.stop_reason = "complete_observation"
