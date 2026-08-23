@@ -38,9 +38,10 @@ These paths cooperate but are **not** one pipeline. Local analysis must continue
 ## M1 implemented boundary
 
 - Package: `src/thought_flow/` with responsibility folders (`ingestion`, `normalization`, `analysis`, `integrations`, `publishing`, `observability`, `config`).
-- Config: environment variables + `.env.example` (names only).
+- Config: environment variables + `.env.example` (names / empty assignments only; defaults in code).
 - CLI: `thought-flow smoke` proves config → run manifest → Raw persist → DuckDB query without external services.
 - Identities: `run_identity` unique per execution; `record_identity` / `raw_content_identity` stable; `canonical_snapshot_identity` helper only (full Canonical waits for M6).
+- Raw layers: content-addressed store holds payload only; per-run provenance artifacts reference content and keep run/record metadata separately.
 
 ## Explicit non-dependencies for local core
 
