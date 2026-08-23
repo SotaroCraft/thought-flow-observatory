@@ -1,6 +1,6 @@
 # M5 Bounded Sensor Smoke Specification
 
-- Status: FROZEN. No connector or backfill is implemented by this document.
+- Status: FROZEN (+ Erratum-001). No connector or backfill is implemented by this document.
 - Source of Truth: `docs/requirements.md` v1.0, then frozen `implementation-plan.md` v1.0.
 - Design inputs: `docs/decisions/m5-sensor-preflight.md` and its external-review PASS in `chatgpt-m5-preflight-review.md`.
 - Scope: M5 smoke mechanics only.
@@ -46,13 +46,16 @@ Every query/cell must end in exactly one primary state; a record may additionall
 
 | State | Required meaning |
 |---|---|
+| `success` | The request succeeded, the requested observable scope was completely observed, and one or more qualifying results exist. (Added by Erratum-001.) |
 | `zero` | The request succeeded, the requested population/window was demonstrably observable, and the source reported no qualifying result. |
-| `missing` | A returned record lacks a requested attribute or the attribute is not applicable. It is not converted to zero. |
+| `missing` | A returned record lacks a requested attribute or the attribute is not applicable. It is not converted to zero. It is **not** a generic success label. |
 | `unknown` | A returned observation exists, but country or another target attribute cannot be established from an allowed primary attribute. It remains a measured category. |
 | `fetch_failure` | Authentication, authorization, network, HTTP, parsing, quota, paging, or source-availability failure prevented observation. It is never converted to zero or missing. |
 | `partial` | Only a bounded portion of the requested observable population was retrieved. The observed and unobserved ranges must be separate. |
 
 For Google Trends, a source-returned numeric 0 is recorded as `zero` with `zero_semantics = low_or_insufficient_relative_interest`; it must not be described as no public interest.
+
+When a source does not report request cost, `reported_cost_usd` MUST be `null`. Unknown cost MUST NOT be coerced to `0.0`. Request counts and rate/quota headers remain independent evidence.
 
 ### 2.3 Shared request and retry rules
 
@@ -456,9 +459,38 @@ Independent smokes may continue. The blocked source and dependent RF/M7 step may
 - [x] No broad scraping is permitted; China has an early legal/access stop.
 - [x] Company sources and denominators remain source-specific.
 - [x] Cross-sensor raw values are not treated as comparable and sensors are not social layers.
-- [x] Zero, missing, unknown, fetch failure, and partial are distinct.
+- [x] Zero, missing, unknown, fetch failure, partial, and success (Erratum-001) are distinct.
 - [x] RF requires actual smoke evidence and remains blocked/inconclusive without it.
 - [x] Every request, record, document inspection, page, cost, and period has a bound.
 - [x] No code, connector, backfill, production DDL, or M6 methodology was implemented.
 
-M5 SMOKE SPEC STATUS: FROZEN
+## Erratum-001 — quality-state completeness + unknown cost semantics
+
+- Status: Normative patch to this FROZEN M5 smoke specification.
+- Date: 2026-08-23
+- Scope: M5 evidence representation only. Does **not** freeze M6 Gate A–E or any production methodology.
+
+### Problem
+
+1. Frozen shared quality states lacked a primary state for **complete observation with one or more qualifying results**. Implementations temporarily overloaded `missing`, which violates the attribute-level meaning of `missing`.
+2. When a source did not report API cost, manifests recorded `reported_cost_usd = 0.0`, coercing unknown cost to a numeric zero.
+
+### Patch
+
+1. Add primary state `success` with the definition in §2.2.
+2. Mapping for cell/query/denominator outcomes:
+   - complete + nonzero qualifying results → `success`
+   - complete + zero qualifying results → `zero`
+   - bounded ceiling / unobserved remainder → `partial`
+   - attribute absence / not applicable → `missing`
+   - unresolvable allowed attribute → `unknown`
+   - acquisition failure → `fetch_failure`
+3. `reported_cost_usd` is `null` when the source reports no cost; only source-reported numeric costs may be summed.
+
+### Non-goals
+
+- No OpenAlex re-fetch is required to apply this erratum to existing Raw.
+- Derived evidence MAY be regenerated under a versioned path that preserves original run artifacts and provenance.
+- M6 Gate A–E remain unfrozen.
+
+M5 SMOKE SPEC STATUS: FROZEN (+ Erratum-001)

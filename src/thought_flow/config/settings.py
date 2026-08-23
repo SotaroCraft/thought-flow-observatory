@@ -60,6 +60,10 @@ class Settings:
     def duckdb_path(self) -> Path:
         return self.data_root / "catalog.duckdb"
 
+    @property
+    def m5_smoke_dir(self) -> Path:
+        return self.data_root / "m5-smoke"
+
     def ensure_directories(self) -> None:
         for path in (
             self.raw_dir,
@@ -67,6 +71,7 @@ class Settings:
             self.results_dir,
             self.manifests_dir,
             self.samples_dir,
+            self.m5_smoke_dir,
         ):
             path.mkdir(parents=True, exist_ok=True)
 

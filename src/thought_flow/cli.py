@@ -1,9 +1,10 @@
-"""Local CLI entry for M1 smoke execution (no external services)."""
+"""Local CLI entry for M1 smoke and M5 OpenAlex bounded smoke."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -51,8 +52,6 @@ def _load_sample_payload(path: Path) -> dict[str, Any]:
 def run_smoke(*, sample_path: Path | None = None) -> int:
     settings = load_settings()
     if settings.external_integrations_enabled():
-        # M1 must prove local core works with integrations disabled.
-        # If flags are on, still refuse to call external services here.
         pass
 
     settings.ensure_directories()
@@ -67,7 +66,6 @@ def run_smoke(*, sample_path: Path | None = None) -> int:
     try:
         path = sample_path or (settings.samples_dir / "m1_synthetic_raw.json")
         if not path.exists():
-            # Fallback to repo-relative default for editable installs.
             candidate = settings.repo_root / DEFAULT_SAMPLE_RELATIVE
             if candidate.exists():
                 path = candidate
@@ -124,7 +122,7 @@ def run_smoke(*, sample_path: Path | None = None) -> int:
             )
         )
         return 0
-    except Exception as exc:  # noqa: BLE001 — CLI boundary; failure recorded in manifest
+    except Exception as exc:  # noqa: BLE001
         manifest.mark_failed(category=type(exc).__name__, message=str(exc))
         manifest.write(manifest_path)
         print(
@@ -143,10 +141,74 @@ def run_smoke(*, sample_path: Path | None = None) -> int:
         return 1
 
 
+def run_m5_openalex_smoke(*, live: bool = False, diagnostic_cell: bool = False) -> int:
+    """Run OpenAlex M5 bounded smoke. Live network only when --live is set."""
+    from thought_flow.smoke.http_client import RequestBudget, SmokeHttpClient
+    from thought_flow.smoke.openalex.runner import run_openalex_smoke
+    from thought_flow.smoke.progress import progress
+
+    progress("CLI entered", "command=m5-smoke-openalex")
+    settings = load_settings()
+    progress(
+        "config loaded",
+        f"data_root={settings.data_root} has_openalex_key_env="
+        f"{bool((os.getenv('THOUGHT_FLOW_OPENALEX_API_KEY') or '').strip())}",
+    )
+    settings.ensure_directories()
+    revision = _code_revision(settings.repo_root)
+    api_key = os.getenv("THOUGHT_FLOW_OPENALEX_API_KEY")
+    if api_key is not None and not api_key.strip():
+        api_key = None
+
+    if not live:
+        print(
+            json.dumps(
+                {
+                    "status": "not_executed",
+                    "reason": "Pass --live to perform bounded OpenAlex network smoke.",
+                    "data_root": str(settings.data_root),
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    if diagnostic_cell:
+        progress(
+            "diagnostic mode",
+            "cell=US×generative_ai×OA-RECENT (not formal SMOKE-PASS)",
+        )
+
+    try:
+        summary = run_openalex_smoke(
+            data_root=settings.data_root,
+            code_revision=revision,
+            api_key=api_key,
+            http=SmokeHttpClient(budget=RequestBudget(), timeout_seconds=30.0),
+            diagnostic_one_cell=diagnostic_cell,
+        )
+        print(json.dumps(summary, indent=2, ensure_ascii=False))
+        return 0 if summary.get("status") in {"succeeded", "partial"} else 1
+    except Exception as exc:  # noqa: BLE001
+        progress("CLI failure", f"category={type(exc).__name__}")
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "failure_category": type(exc).__name__,
+                    "failure_message": str(exc)[:500],
+                },
+                indent=2,
+            ),
+            file=sys.stderr,
+        )
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="thought-flow",
-        description="Thought Flow Observatory local entry (M1: smoke only).",
+        description="Thought Flow Observatory local entry (M1 smoke + M5 OpenAlex).",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -158,6 +220,24 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Path to a public-safe JSON sample (default: data/samples/m1_synthetic_raw.json).",
     )
+
+    m5 = sub.add_parser(
+        "m5-smoke-openalex",
+        help="Run bounded OpenAlex M5 smoke (network only with --live).",
+    )
+    m5.add_argument(
+        "--live",
+        action="store_true",
+        help="Perform live OpenAlex requests within frozen ceilings.",
+    )
+    m5.add_argument(
+        "--diagnostic-cell",
+        action="store_true",
+        help=(
+            "Live pipeline diagnostic only: US × generative_ai × OA-RECENT. "
+            "Not a formal M5 SMOKE-PASS."
+        ),
+    )
     return parser
 
 
@@ -166,6 +246,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "smoke":
         return run_smoke(sample_path=args.sample)
+    if args.command == "m5-smoke-openalex":
+        if getattr(args, "diagnostic_cell", False) and not args.live:
+            parser.error("--diagnostic-cell requires --live")
+        return run_m5_openalex_smoke(
+            live=args.live,
+            diagnostic_cell=getattr(args, "diagnostic_cell", False),
+        )
     parser.error(f"Unknown command: {args.command}")
     return 2
 
