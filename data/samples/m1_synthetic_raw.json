@@ -1,0 +1,13 @@
+{
+  "title": "M1 synthetic public-safe sample",
+  "theme_hint": "generative_ai",
+  "country_evidence": null,
+  "country": "unknown",
+  "published_date": "2023-01-15",
+  "text": "Synthetic record for Thought Flow Observatory local smoke tests. No personal data.",
+  "measurement": {
+    "unit": "count",
+    "value": 1
+  },
+  "license_note": "Synthetic fixture created for this repository; redistributable as project sample."
+}

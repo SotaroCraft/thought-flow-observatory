@@ -1,0 +1,40 @@
+[project]
+name = "thought-flow"
+version = "0.1.0"
+description = "Thought Flow Observatory — local-first public-information Research Hub PoC"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Thought Flow Observatory contributors" }]
+dependencies = [
+    "duckdb>=1.1.0",
+    "pyarrow>=17.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+thought-flow = "thought_flow.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/thought_flow"]
+
+[tool.hatch.build.targets.wheel.sources]
+"src/thought_flow" = "thought_flow"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+]
