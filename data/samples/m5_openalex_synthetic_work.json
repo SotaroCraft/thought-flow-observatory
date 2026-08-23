@@ -1,0 +1,33 @@
+{
+  "schema": "m5.privacy_reduced_raw_envelope.openalex.v1",
+  "note": "Synthetic privacy-reduced fixture only. No person identifiers.",
+  "work_id": "https://openalex.org/Wfixture001",
+  "doi": null,
+  "title": "A synthetic generative AI methods note",
+  "display_name": "A synthetic generative AI methods note",
+  "type": "article",
+  "language": "en",
+  "abstract_present": true,
+  "abstract_inverted_index": {
+    "This": [0],
+    "is": [1],
+    "a": [2],
+    "synthetic": [3],
+    "abstract": [4],
+    "about": [5],
+    "generative": [6],
+    "AI": [7]
+  },
+  "publication_date": "2022-12-01",
+  "publication_year": 2022,
+  "institutions": [
+    {
+      "id": "https://openalex.org/Ifixture",
+      "type": "education",
+      "country_code": "US"
+    }
+  ],
+  "authorship_countries": ["US"],
+  "missing_country": false,
+  "multi_country": false
+}
