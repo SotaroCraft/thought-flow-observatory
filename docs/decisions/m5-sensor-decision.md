@@ -28,7 +28,7 @@ This record stores public-safe aggregates, limitations, a recommended OpenAlex M
 
 ## 2. Smoke evidence summary (reviewed, public-safe)
 
-Repository-confirmable reviewed evidence for the authenticated bounded live smoke includes Program Memory on [Issue #1](https://github.com/SotaroCraft/thought-flow-observatory/issues/1), merge of PR #2, Erratum-001 in [`m5-smoke-spec.md`](m5-smoke-spec.md), and unit tests under `tests/unit/test_m5_*.py`. **Live privacy-reduced Raw is not present in the public repository.**
+Repository-confirmable reviewed evidence for the authenticated bounded live smoke is limited to SoT and reviewed implementation artifacts: merge of PR #2, Erratum-001 in [`m5-smoke-spec.md`](m5-smoke-spec.md), reviewed commit `9fbe14f`, and unit tests under `tests/unit/test_m5_*.py`. Genesis / Program Memory (Issue #1) is **not** normative evidence and is **not** used as a reviewed-evidence basis for this record. **Live privacy-reduced Raw is not present in the public repository.**
 
 | Evidence item | Reviewed state |
 |---|---|
@@ -38,7 +38,7 @@ Repository-confirmable reviewed evidence for the authenticated bounded live smok
 | Global theme × period audits | 6 |
 | Total evidence units | 42 |
 | `fetch_failure` | 0 |
-| Request / cost ceiling | Completed within frozen OpenAlex ceilings (512 HTTP attempts; USD 0.75 / documented free-budget fraction) |
+| Request / cost ceiling | HTTP attempt count remained within the frozen 512-attempt ceiling. Source-reported cost was unavailable; under Erratum-001, `reported_cost_usd = null`. Numeric cost-ceiling compliance must **not** be fabricated from unknown cost. |
 | Persistence | Privacy-reduced Raw envelopes only; author / person fields not retained |
 | Country rule | No name / language / LLM country inference; structured authorship countries retained; `unknown` / multi-country preserved |
 | Primary theme classifier | Deterministic `PROVISIONAL-M5-SMOKE` on title / reconstructed abstract — **not** OpenAlex topics as primary |
@@ -86,7 +86,7 @@ Normative patch recorded in [`m5-smoke-spec.md`](m5-smoke-spec.md) (Erratum-001)
 | Reason codes | `mechanical_smoke_complete`; `fetch_failure_zero`; `privacy_reduced_persistence`; `no_country_inference`; `provisional_vocabulary_only`; `live_raw_not_in_public_repo`; `bounded_ceiling_partial_cells`; `erratum001_applied` |
 | Reviewer / approval state | Cursor recommendation recorded. Human / Codex own source adoption and RF final (§1 / §12 of smoke spec). |
 | Why not `SMOKE-NO-GO` | Mandatory cells completed with `fetch_failure = 0`; documented schema / start boundary / privacy and no-inference boundaries held under review. Sparse / valid zero alone is not no-go (§5.4). |
-| Why not bare `SMOKE-PASS` | Publication restriction (no public live Raw) and smoke-ceiling / coverage semantics constrain later use; limitations above must remain explicit (§1 `SMOKE-PASS-WITH-LIMITATIONS`). |
+| Why not bare `SMOKE-PASS` | Bounded ceiling / `partial` observations constrain completeness claims; the public repository alone cannot fully re-inspect live coverage evidence; Human provisional vocabulary review sample is **UNKNOWN** / not packaged. These are TFO evidence-packaging and smoke-mechanics limitations—not a claim that OpenAlex metadata licensing prohibits retention. Limitations above must remain explicit (§1 `SMOKE-PASS-WITH-LIMITATIONS`). |
 | Why not `SMOKE-BLOCKED` | Authenticated live smoke ran; entitlement was not absent for the completed Phase 1 path. |
 
 OpenAlex remains eligible for M6 **consideration** only; Gate A–E are not frozen by this result.
@@ -147,7 +147,7 @@ Do **not** store API key values, account IDs, or live Raw in the repository or t
 - Smoke specification (+ Erratum-001): [`m5-smoke-spec.md`](m5-smoke-spec.md)
 - Decisions index: [`README.md`](README.md)
 - Merge: [PR #2](https://github.com/SotaroCraft/thought-flow-observatory/pull/2)
-- Program Memory: [Issue #1](https://github.com/SotaroCraft/thought-flow-observatory/issues/1)
+- [Issue #1](https://github.com/SotaroCraft/thought-flow-observatory/issues/1) — **Non-normative Program Memory / background only** (not SoT; not reviewed-evidence basis)
 
 ---
 
