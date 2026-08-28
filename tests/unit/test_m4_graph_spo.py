@@ -7,7 +7,12 @@ from typing import Any
 
 import pytest
 
-from thought_flow.integrations.sharepoint.auth import redact_secrets
+from thought_flow.integrations.sharepoint.auth import (
+    AUTH_MODE,
+    PUBLIC_CLIENT_REDIRECT_URI,
+    acquire_delegated_token_interactive,
+    redact_secrets,
+)
 from thought_flow.integrations.sharepoint.client import site_path_address
 from thought_flow.integrations.sharepoint.config import GraphSmokeConfig, load_graph_smoke_config
 from thought_flow.integrations.sharepoint.sanitize import sanitize_evidence
@@ -55,6 +60,9 @@ def test_preflight_ready(monkeypatch: pytest.MonkeyPatch) -> None:
     result = preflight(cfg)
     assert result["status"] == "ready"
     assert result["permission_scope"] == "Sites.Read.All"
+    assert result["auth_mode"] == AUTH_MODE
+    assert AUTH_MODE == "delegated_interactive_browser"
+    assert PUBLIC_CLIENT_REDIRECT_URI == "http://localhost"
 
 
 def test_hostname_and_path_normalization(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -190,7 +198,7 @@ def test_successful_smoke_sanitizes_ids(tmp_path: Path) -> None:
         evidence_dir=evidence,
     )
     assert result["status"] == "succeeded"
-    assert result["auth_mode"] == "delegated_device_code"
+    assert result["auth_mode"] == AUTH_MODE
     assert "site_resolve" in result["graph_operation_categories"]
     assert "list_enumerate" in result["graph_operation_categories"]
     assert "metadata_read" in result["graph_operation_categories"]
@@ -257,3 +265,91 @@ def test_local_core_unaffected_by_sharepoint_package() -> None:
     settings = load_settings(dotenv_path=Path("/nonexistent/.env"))
     assert settings.enable_sharepoint is False
     assert sp_preflight()["status"] == "disabled"
+
+
+def test_interactive_auth_uses_acquire_token_interactive(monkeypatch: pytest.MonkeyPatch) -> None:
+    prompts: list[str] = []
+    calls: dict[str, Any] = {"interactive": 0, "silent": 0, "device": 0}
+
+    class FakeApp:
+        def get_accounts(self) -> list[Any]:
+            return []
+
+        def acquire_token_silent(self, scopes: list[str], account: Any = None) -> dict[str, Any]:
+            calls["silent"] += 1
+            return {}
+
+        def initiate_device_flow(self, scopes: list[str]) -> dict[str, Any]:
+            calls["device"] += 1
+            raise AssertionError("Device Code Flow must not be used")
+
+        def acquire_token_by_device_flow(self, flow: dict[str, Any]) -> dict[str, Any]:
+            calls["device"] += 1
+            raise AssertionError("Device Code Flow must not be used")
+
+        def acquire_token_interactive(self, scopes: list[str], **kwargs: Any) -> dict[str, Any]:
+            calls["interactive"] += 1
+            assert "Sites.Read.All" in scopes
+            return {"access_token": "eyJ" + ("A" * 20) + "." + ("B" * 20) + "." + ("C" * 20)}
+
+    class FakeMsal:
+        def PublicClientApplication(self, client_id: str, authority: str) -> FakeApp:
+            assert client_id
+            assert authority.startswith("https://login.microsoftonline.com/")
+            return FakeApp()
+
+    monkeypatch.setattr(
+        "thought_flow.integrations.sharepoint.auth._import_msal",
+        lambda: FakeMsal(),
+    )
+    result = acquire_delegated_token_interactive(
+        client_id="app-id",
+        authority="https://login.microsoftonline.com/tenant-id",
+        prompt=prompts.append,
+    )
+    assert result.ok is True
+    assert result.access_token is not None
+    assert calls["interactive"] == 1
+    assert calls["device"] == 0
+    assert prompts and "browser" in prompts[0].lower()
+
+
+def test_interactive_auth_sanitizes_security_defaults_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeApp:
+        def get_accounts(self) -> list[Any]:
+            return []
+
+        def acquire_token_silent(self, scopes: list[str], account: Any = None) -> dict[str, Any]:
+            return {}
+
+        def acquire_token_interactive(self, scopes: list[str], **kwargs: Any) -> dict[str, Any]:
+            return {
+                "error": "access_denied",
+                "error_description": (
+                    "AADSTS530035: Device Code flow blocked by security defaults. "
+                    "BlockedBySecurityDefaults. Trace ID: not-for-repo."
+                ),
+                "error_codes": [530035],
+            }
+
+    class FakeMsal:
+        def PublicClientApplication(self, client_id: str, authority: str) -> FakeApp:
+            return FakeApp()
+
+    monkeypatch.setattr(
+        "thought_flow.integrations.sharepoint.auth._import_msal",
+        lambda: FakeMsal(),
+    )
+    result = acquire_delegated_token_interactive(
+        client_id="app-id",
+        authority="https://login.microsoftonline.com/tenant-id",
+        prompt=lambda _msg: None,
+    )
+    assert result.ok is False
+    assert result.access_token is None
+    assert result.error_code == "access_denied"
+    assert "530035" in (result.error_message or "")
+    assert "BlockedBySecurityDefaults" in (result.error_message or "")
+    assert "access_token" not in (result.error_message or "").lower()

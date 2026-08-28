@@ -18,3 +18,9 @@ M1 does not freeze sensor sources, dictionaries, country aggregation, or metrics
 | [`m5-sensor-preflight.md`](m5-sensor-preflight.md) | Sensor preflight (design) | External Review PASS |
 | [`m5-smoke-spec.md`](m5-smoke-spec.md) | Bounded smoke specification (+ Erratum-001) | FROZEN |
 | [`m5-sensor-decision.md`](m5-sensor-decision.md) | OpenAlex Phase 1 source decision record | OpenAlex Phase 1 recorded; **overall M5 source selection remains Open (TBD-001)** |
+
+## M4 records
+
+| Document | Topic | Status |
+|---|---|---|
+| [`m4-auth-interactive-browser.md`](m4-auth-interactive-browser.md) | Replace Device Code Flow with interactive browser + PKCE after AADSTS530035 | Accepted |

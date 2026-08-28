@@ -4,18 +4,31 @@ Bounded proof: Entra delegated auth → Microsoft Graph → resolve existing TFO
 
 Graph remains **optional**. Local Raw / smoke must work with SharePoint disabled.
 
+## Auth mode (current)
+
+- **Delegated** `Sites.Read.All`
+- **Public client** (no client secret)
+- **Interactive browser + PKCE** via MSAL `acquire_token_interactive`
+- Redirect URI: `http://localhost` (Mobile and desktop applications platform)
+
+### Observed Device Code Flow blocker (do not reintroduce without policy change)
+
+Live attempt with Device Code Flow returned **AADSTS530035 / Error 530035 / BlockedBySecurityDefaults**. That is a **tenant authentication constraint**, not a SharePoint permission failure. Admin consent for delegated `Sites.Read.All` did not change the Device Code result.
+
+**Program decision:** keep Security Defaults enabled; do **not** add Conditional Access exceptions merely to preserve Device Code Flow; do **not** broaden Graph permissions. Adapt the app to interactive browser auth instead. See `docs/decisions/m4-auth-interactive-browser.md`.
+
 ## Exact Entra app registration steps
 
-1. Open **Microsoft Entra admin center** → **App registrations** → **New registration**.
-2. Name: e.g. `TFO Graph SPO Smoke` (local PoC).
-3. Supported account types: **Accounts in this organizational directory only** (single tenant).
-4. Redirect URI: leave empty for device-code (public client). Click **Register**.
-5. Copy **Application (client) ID** into local `.env` as `THOUGHT_FLOW_GRAPH_CLIENT_ID` (do not paste into chat or Git).
-6. Copy **Directory (tenant) ID** into local `.env` as `THOUGHT_FLOW_GRAPH_TENANT_ID` (do not paste into chat or Git).
-7. **Authentication** → **Advanced settings** → **Allow public client flows** = **Yes** → Save.
-8. **API permissions** → **Add a permission** → **Microsoft Graph** → **Delegated permissions** → add **`Sites.Read.All`** only for this smoke.
-9. Consent: Microsoft Graph marks delegated **`Sites.Read.All`** as **AdminConsentRequired: No**. Normal **user consent** during device-code sign-in is sufficient when the tenant’s user-consent policy allows it. If tenant policy blocks user consent, a Human/Admin must grant consent for the app — then retry. If consent remains blocked, stop and record BLOCKED in `docs/m365-validation.md`. Do **not** escalate to write scopes.
-10. Do **not** create a client secret for this smoke. Auth mode remains **public client + device code flow**.
+1. Open **Microsoft Entra admin center** → **App registrations** → select the existing TFO smoke app (or **New registration** if creating fresh).
+2. Supported account types: **Accounts in this organizational directory only** (single tenant).
+3. Copy **Application (client) ID** into local `.env` as `THOUGHT_FLOW_GRAPH_CLIENT_ID` (do not paste into chat or Git).
+4. Copy **Directory (tenant) ID** into local `.env` as `THOUGHT_FLOW_GRAPH_TENANT_ID` (do not paste into chat or Git).
+5. **Authentication** → **Add a platform** → **Mobile and desktop applications** → enable / add redirect URI **`http://localhost`** → Save.
+6. **Authentication** → **Advanced settings** → **Allow public client flows** = **Yes** → Save (public client; still **no** client secret).
+7. **API permissions** → Microsoft Graph → **Delegated** → **`Sites.Read.All`** only. Do not add write scopes.
+8. Consent: Graph marks delegated **`Sites.Read.All`** as **AdminConsentRequired: No**. Normal **user consent** during interactive sign-in is sufficient when tenant user-consent policy allows it. If policy blocks user consent, Human/Admin grants consent for the app — then retry. If consent remains blocked, record BLOCKED — do **not** escalate to write scopes.
+9. Do **not** create a client secret.
+10. Do **not** disable Security Defaults to make Device Code Flow work.
 
 ### Do not request for this proof
 
@@ -23,6 +36,7 @@ Graph remains **optional**. Local Raw / smoke must work with SharePoint disabled
 - `Sites.FullControl.All`
 - Application permissions (unless delegated path is proven impossible — escalate instead of improvising)
 - Client secrets / certificates for this read-only public-client smoke
+- Disabling Security Defaults or CA exceptions solely for Device Code Flow
 
 ## Local `.env` variable names
 
@@ -44,16 +58,19 @@ uv sync --extra sharepoint
 
 ## First live command after config
 
+After the **`http://localhost`** redirect URI is saved on the app:
+
 ```bash
+uv sync --extra sharepoint
 uv run thought-flow m4-graph-spo-smoke
 uv run thought-flow m4-graph-spo-smoke --live
 ```
 
 Without `--live`, the command only checks configuration readiness.
 
-With `--live`, complete the device-code prompt in the browser, then the CLI performs:
+With `--live`, complete sign-in in the **system browser**, then the CLI performs:
 
-1. token acquisition (delegated)
+1. token acquisition (delegated interactive + PKCE)
 2. site resolve by hostname + path
 3. list/library enumerate
 4. one list metadata read (`$select` only; no file body download)

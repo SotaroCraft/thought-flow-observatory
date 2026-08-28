@@ -10,9 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from thought_flow.integrations.sharepoint.auth import (
+    AUTH_MODE,
     GRAPH_SCOPES,
     MsalUnavailableError,
-    acquire_delegated_token_device_code,
+    acquire_delegated_token_interactive,
     redact_secrets,
 )
 from thought_flow.integrations.sharepoint.client import graph_get, site_path_address
@@ -25,7 +26,7 @@ AcquireFn = Callable[..., Any]
 
 @dataclass(frozen=True)
 class SmokeDependencies:
-    acquire_token: AcquireFn = acquire_delegated_token_device_code
+    acquire_token: AcquireFn = acquire_delegated_token_interactive
     graph_get: GetFn = graph_get
 
 
@@ -40,7 +41,7 @@ def preflight(config: GraphSmokeConfig | None = None) -> dict[str, Any]:
         return {
             "status": "disabled",
             "reason": "THOUGHT_FLOW_ENABLE_SHAREPOINT is not enabled",
-            "auth_mode": "delegated_device_code",
+            "auth_mode": AUTH_MODE,
             "permission_scope": GRAPH_SCOPES[0],
             "live": False,
         }
@@ -50,14 +51,14 @@ def preflight(config: GraphSmokeConfig | None = None) -> dict[str, Any]:
             "status": "not_configured",
             "reason": "Missing required environment variables",
             "missing": missing,
-            "auth_mode": "delegated_device_code",
+            "auth_mode": AUTH_MODE,
             "permission_scope": GRAPH_SCOPES[0],
             "live": False,
         }
     return {
         "status": "ready",
         "reason": "Config present; pass --live to run delegated Graph smoke",
-        "auth_mode": "delegated_device_code",
+        "auth_mode": AUTH_MODE,
         "permission_scope": GRAPH_SCOPES[0],
         "spo_hostname_configured": True,
         "spo_site_path_configured": True,
@@ -75,7 +76,7 @@ def run_graph_spo_smoke(
 ) -> dict[str, Any]:
     """Run preflight or live bounded Graph SPO smoke.
 
-    Live path: device-code auth → site resolve → list enumerate → one metadata read.
+    Live path: interactive browser auth → site resolve → list enumerate → one metadata read.
     Failures are explicit and never write to Raw.
     """
     cfg = config or load_graph_smoke_config()
@@ -109,7 +110,7 @@ def run_graph_spo_smoke(
             operations=operations,
             extra={"auth_error_code": token.error_code},
         )
-    operations.append({"category": "authentication", "result": "ok", "mode": "delegated_device_code"})
+    operations.append({"category": "authentication", "result": "ok", "mode": AUTH_MODE})
 
     access_token = token.access_token
     try:
@@ -233,7 +234,7 @@ def run_graph_spo_smoke(
             "status": "succeeded",
             "live": True,
             "checked_at": _utc_now(),
-            "auth_mode": "delegated_device_code",
+            "auth_mode": AUTH_MODE,
             "permission_scope": GRAPH_SCOPES[0],
             "graph_operation_categories": [op["category"] for op in operations],
             "operations": operations,
@@ -262,7 +263,7 @@ def _failure(
         "status": "failed",
         "live": True,
         "checked_at": _utc_now(),
-        "auth_mode": "delegated_device_code",
+        "auth_mode": AUTH_MODE,
         "permission_scope": GRAPH_SCOPES[0],
         "failure_category": category,
         "failure_message": redact_secrets(message)[:500],

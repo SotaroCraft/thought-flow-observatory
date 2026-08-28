@@ -249,7 +249,7 @@ def build_parser() -> argparse.ArgumentParser:
     m4.add_argument(
         "--live",
         action="store_true",
-        help="Perform delegated device-code auth and one Graph read against configured SPO site.",
+        help="Perform delegated interactive browser auth and one Graph read against configured SPO site.",
     )
 
     m5 = sub.add_parser(

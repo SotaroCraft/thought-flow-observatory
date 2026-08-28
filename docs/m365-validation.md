@@ -25,14 +25,14 @@ M3 and M4 have separate entries below. Do **not** treat Human historical recolle
 |---|---|
 | Date | 2026-08-29 |
 | Feature | Microsoft Graph / Entra delegated read smoke against existing SPO site |
-| What was tried | Implemented optional local CLI smoke (`thought-flow m4-graph-spo-smoke`); unit tests without live Microsoft access. **Live Entra/Graph call pending Human app registration + `.env`.** |
-| What worked | Config-absent / disabled paths are explicit; local core remains independent; sanitized evidence shape defined. |
-| What did not work | Live auth + Graph read not executed in this session (Human config gate). |
-| Required permissions / prerequisites | Delegated `Sites.Read.All` (AdminConsentRequired: No); public client + device code; user consent normally sufficient unless tenant policy blocks it. See `docs/operations/m4-graph-spo-smoke.md`. |
-| Constraints | Read-only; no file body download; no sync; Graph optional to Raw → Canonical → Analysis. |
+| What was tried | Optional CLI smoke; live Device Code Flow auth attempt; then auth-only switch to interactive browser + PKCE (code ready; live retry pending `http://localhost` redirect). |
+| What worked | Config-absent / disabled paths explicit; local core independent; SPO site/list/read path unchanged; Security Defaults left enabled. |
+| What did not work | Device Code Flow blocked by **AADSTS530035 / BlockedBySecurityDefaults** (auth constraint, not SharePoint permission). Admin consent for `Sites.Read.All` did not unblock Device Code. |
+| Required permissions / prerequisites | Delegated `Sites.Read.All`; public client; interactive browser redirect `http://localhost`. See `docs/operations/m4-graph-spo-smoke.md`. |
+| Constraints | Read-only; no file body download; no sync; Graph optional; Security Defaults preserved; no CA exception for Device Code. |
 | Usefulness to Research Hub | Proves programmatic SPO reachability for later optional automation; manual SPO remains fallback. |
-| Adopt / defer decision | **Pending live smoke.** Code path ready; adopt only after PASS or record BLOCKED with fallback. |
-| Evidence location (public-safe) | This log (update after live run); local sanitized artifact under gitignored `workspace-data/m4-smoke/` (do not commit). |
+| Adopt / defer decision | **Pending interactive live smoke** after Human adds localhost redirect. Auth design recorded in `docs/decisions/m4-auth-interactive-browser.md`. |
+| Evidence location (public-safe) | This log; decision record; local sanitized artifact under gitignored `workspace-data/m4-smoke/` (do not commit). |
 
 ## Log template (per later feature insight)
 
@@ -60,3 +60,4 @@ M3 and M4 have separate entries below. Do **not** treat Human historical recolle
 - Requirements: `docs/requirements.md` §§14.1, 19.2, FR-INT-002, AC-M365-001〜003
 - Plan: `implementation-plan.md` §§5.1 (S1–S3), 6 (M3–M4), 10
 - Ops: `docs/operations/m3-hub-reconfirm-checklist.md`, `docs/operations/m4-graph-spo-smoke.md`
+- Decision: `docs/decisions/m4-auth-interactive-browser.md`

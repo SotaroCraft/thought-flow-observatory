@@ -49,9 +49,10 @@ These paths cooperate but are **not** one pipeline. Local analysis must continue
 
 ## M4 Graph / SPO boundary (optional)
 
-- Package: `thought_flow.integrations.sharepoint` — delegated device-code auth + bounded Graph read smoke.
+- Package: `thought_flow.integrations.sharepoint` — delegated interactive browser auth (PKCE) + bounded Graph read smoke.
 - CLI: `thought-flow m4-graph-spo-smoke` (preflight) and `--live` (Human-operated auth + one metadata read).
 - Permission target: delegated `Sites.Read.All` (read-only proof). No client secret for the public-client path.
+- Auth note: Device Code Flow blocked by Security Defaults (AADSTS530035); interactive `http://localhost` used instead — see `docs/decisions/m4-auth-interactive-browser.md`.
 - Failure / absence of Graph must not affect immutable Raw or local smoke.
 - Ops: `docs/operations/m4-graph-spo-smoke.md`. Evidence: `docs/m365-validation.md`.
 
