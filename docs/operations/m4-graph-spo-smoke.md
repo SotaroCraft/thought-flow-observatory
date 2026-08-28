@@ -75,7 +75,20 @@ With `--live`, complete sign-in in the **system browser**, then the CLI performs
 3. list/library enumerate
 4. one list metadata read (`$select` only; no file body download)
 
-Sanitized JSON is printed and also written under gitignored `workspace-data/m4-smoke/` (default data root). **Do not commit** that file. Update `docs/m365-validation.md` §M4 with public-safe PASS/BLOCKED fields only.
+Sanitized JSON is printed and may be written under the gitignored local data root at `m4-smoke/` (default under `workspace-data/`). **Do not commit** that file or paste machine-specific absolute paths into the public repo. Public-safe evidence lives in `docs/m365-validation.md` §M4.
+
+## Live result (2026-08-29)
+
+**M4 SPO PROGRAMMATIC CONNECTIVITY: PASS**
+
+- `status=succeeded`
+- `auth_mode=delegated_interactive_browser`
+- `permission_scope=Sites.Read.All`
+- Operations: authentication, site_resolve, list_enumerate, metadata_read
+- Preferred enumerated library display name: `Sources`
+- Constraints confirmed: read_only; no file body download; no site/list IDs in evidence; Graph optional to local core
+- Prior Device Code attempt: AADSTS530035 / Security Defaults (defaults **not** disabled)
+- Manual SPO fallback remains valid
 
 ## Manual fallback
 

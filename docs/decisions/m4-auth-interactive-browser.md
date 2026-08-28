@@ -21,9 +21,13 @@ The M4 smoke initially used MSAL public-client **Device Code Flow**. A live atte
 
 ## Consequences
 
-- Human must add `http://localhost` on the Entra app before the next live smoke.
+- Human registers `http://localhost` on the Entra app (Mobile and desktop applications).
 - Security Defaults remain the tenant baseline; the application adapts.
-- Manual SPO Capture / Pages remain the fallback if interactive auth is still blocked.
+- Manual SPO Capture / Pages remain the fallback if Graph is unavailable.
+
+## Live validation (2026-08-29)
+
+Human-operated interactive smoke **succeeded** (`auth_mode=delegated_interactive_browser`, scope `Sites.Read.All`): authentication → site_resolve → list_enumerate → metadata_read. Security Defaults were **not** disabled. See `docs/m365-validation.md` §M4. Program status: **M4 SPO PROGRAMMATIC CONNECTIVITY: PASS**.
 
 ## Non-goals
 

@@ -23,4 +23,4 @@ M1 does not freeze sensor sources, dictionaries, country aggregation, or metrics
 
 | Document | Topic | Status |
 |---|---|---|
-| [`m4-auth-interactive-browser.md`](m4-auth-interactive-browser.md) | Replace Device Code Flow with interactive browser + PKCE after AADSTS530035 | Accepted |
+| [`m4-auth-interactive-browser.md`](m4-auth-interactive-browser.md) | Replace Device Code Flow with interactive browser + PKCE after AADSTS530035; live smoke PASS 2026-08-29 | Accepted / validated |
