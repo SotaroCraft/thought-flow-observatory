@@ -46,7 +46,9 @@ Repository-confirmable reviewed evidence for the authenticated bounded live smok
 | Erratum-001 derived evidence | Versioned separately from original Raw / query / provenance |
 | Unit tests at reviewed exit | **53 passed** |
 | Public-safety scan at reviewed exit | **CLEAN** |
-| CodeX Phase 1 exit | **M5 OPENALEX PHASE 1 EXIT: PASS** |
+| CodeX Phase 1 exit | **M5 OPENALEX PHASE 1 EXIT: PASS** — *review outcome* (evidence class B below). File hashes do **not** prove this review. |
+
+Aggregate counts in the table above are grounded in the Human-held local run identified in **§2.1 Live evidence provenance**, not in Issue #1 or chat history.
 
 ### Limitations (explicit)
 
@@ -56,6 +58,66 @@ Repository-confirmable reviewed evidence for the authenticated bounded live smok
 4. Human stratified provisional match review samples (§4 of the smoke spec) are **UNKNOWN** in this public record (not packaged as a normative public artifact here).
 5. Public numeric rates for abstract coverage, `unknown` country share, and multi-country share from the live run are **UNKNOWN** in this public record (aggregates not published without live Raw).
 6. This record does **not** decide OpenAlex production adoption, RF final state, or any M6 Gate.
+
+### 2.1 Live evidence provenance
+
+Public-safe identity and integrity only. Raw payloads, HTTP bodies, API keys, and machine-specific absolute paths are **not** published here.
+
+#### Evidence classes (keep distinct)
+
+| Class | What it proves | What it does not prove |
+|---|---|---|
+| **A — live-run evidence** | A specific Human-held local run identity + SHA-256 integrity of original / Erratum-derived summary artifacts | CodeX review outcome |
+| **B — review outcome** | Repository metadata for PR [#2](https://github.com/SotaroCraft/thought-flow-observatory/pull/2) / reviewed implementation recording **M5 OPENALEX PHASE 1 EXIT: PASS** | Contents or hashes of the local live Raw |
+
+#### A. Live-run identity (Human-held local workspace)
+
+| Field | Value |
+|---|---|
+| `run_id` | `3422ccef-6968-4c29-8b7b-74e182d88873` |
+| Execution mode | `full` (authenticated OpenAlex Phase 1 bounded smoke) |
+| Local evidence locator (generic) | `workspace-data/m5-smoke/runs/<run_id>/` |
+| Original summary artifacts | `manifest.json`, `coverage.csv`, `queries.jsonl` (plus local `raw/` — not published) |
+| Erratum-001 derived locator | `workspace-data/m5-smoke/runs/<run_id>/derived/erratum-001/` |
+| Derived summary artifacts | `manifest.json`, `coverage.csv`, `queries.jsonl`, `regeneration.json` |
+
+#### Original integrity (SHA-256)
+
+Hashes taken from `derived/erratum-001/regeneration.json` → `original_hashes`, and independently re-verified against the same local original files (match confirmed).
+
+| Artifact | SHA-256 |
+|---|---|
+| original `manifest.json` | `5fd18fbdf4bcc5a3585b41670d1f76f16870c26aa12cf9729e0f57e4517ad000` |
+| original `coverage.csv` | `96f09bdc1ef715fc201295c9ae44707cdc06765900a1823212bb2faf59d31641` |
+| original `queries.jsonl` | `9b2ba55e93dd18c1f306c236ec33a0cfa3a70377fe0f58f5e60f3407684db75b` |
+| `original_integrity_ok` (regeneration) | `true` |
+
+#### Erratum-001 derived integrity (SHA-256)
+
+Independently computed over the local derived artifacts for this same `run_id`.
+
+| Artifact | SHA-256 |
+|---|---|
+| derived `manifest.json` | `631ec00098446a45bc91ea895d0a8958f698916f8d335b9536a995597ed1f671` |
+| derived `coverage.csv` | `cd678ec1d397c03d1c9894e3a06c9cb6e6fb1c3a1178cdcbb487ff55e25bcce9` |
+| derived `queries.jsonl` | `e959e15892d4e3bd44b732cacc951af05c83149a6eba5df8b7df89cbd1485262` |
+| `regeneration.json` | `fd8648a442df617ae2080babaf9eed4e98dd5ad4abdc37ff6456fad9ada70e24` |
+
+#### Aggregate → evidence mapping
+
+Trace: **Decision Record aggregate → Erratum-001 derived summary → original `manifest.json` / `coverage.csv` / `queries.jsonl` → same immutable `run_id`.**
+
+| Aggregate claim | Supporting local evidence |
+|---|---|
+| 24 country-theme-period cells | Original / derived `coverage.csv` rows with `cell_kind = country_theme` (count = 24) |
+| 12 denominators | `cell_kind = country_period_denominator` (count = 12) |
+| 6 global audits | `cell_kind = global_theme_audit` (count = 6) |
+| 42 total evidence units | `coverage.csv` row count = 42; original `manifest.json` `coverage_rows` = 42 |
+| `fetch_failure = 0` | No coverage row with `quality_state = fetch_failure` in original or derived `coverage.csv` |
+| Quality-state distribution after Erratum-001 | Derived `coverage.csv` / `regeneration.json`: `success` = 14, `partial` = 26, `zero` = 2 |
+| HTTP attempts within 512 ceiling | Original `manifest.json` `http_attempts_used` = 318 (cost remains unknown / `null` under Erratum-001; do not fabricate numeric cost compliance) |
+
+A Human holding `workspace-data/m5-smoke/runs/3422ccef-6968-4c29-8b7b-74e182d88873/` can recompute the SHA-256 values above to prove the Decision Record aggregates refer to that immutable run and its Erratum-001 derived summary.
 
 ---
 
