@@ -18,7 +18,6 @@ class GraphHttpResult:
     status_code: int | None
     payload: dict[str, Any] | list[Any] | None
     error_category: str | None
-    error_message: str | None
 
 
 def graph_get(
@@ -28,7 +27,7 @@ def graph_get(
     query: dict[str, str] | None = None,
     timeout_seconds: float = 30.0,
 ) -> GraphHttpResult:
-    """GET a Graph path. Does not log Authorization headers or bodies with secrets."""
+    """GET a Graph path. Does not retain response error bodies for public evidence."""
     url = f"{GRAPH_BASE}/{path.lstrip('/')}"
     if query:
         url = f"{url}?{urllib.parse.urlencode(query)}"
@@ -53,7 +52,6 @@ def graph_get(
                     status_code=int(status) if status is not None else None,
                     payload=None,
                     error_category="invalid_json",
-                    error_message="Graph response was not valid JSON",
                 )
             if not isinstance(payload, (dict, list)):
                 return GraphHttpResult(
@@ -61,37 +59,31 @@ def graph_get(
                     status_code=int(status) if status is not None else None,
                     payload=None,
                     error_category="unexpected_payload_type",
-                    error_message="Graph response JSON was not an object or array",
                 )
             return GraphHttpResult(
                 ok=True,
                 status_code=int(status) if status is not None else None,
                 payload=payload,
                 error_category=None,
-                error_message=None,
             )
     except urllib.error.HTTPError as exc:
-        body = ""
+        # Drain body without retaining it for evidence.
         try:
-            body = exc.read().decode("utf-8", errors="replace")
+            exc.read()
         except OSError:
-            body = ""
-        message = _summarize_http_error(exc.code, body)
+            pass
         return GraphHttpResult(
             ok=False,
             status_code=exc.code,
             payload=None,
             error_category="http_error",
-            error_message=message,
         )
-    except urllib.error.URLError as exc:
-        reason = getattr(exc, "reason", exc)
+    except urllib.error.URLError:
         return GraphHttpResult(
             ok=False,
             status_code=None,
             payload=None,
             error_category="network_error",
-            error_message=str(reason)[:240],
         )
     except TimeoutError:
         return GraphHttpResult(
@@ -99,34 +91,17 @@ def graph_get(
             status_code=None,
             payload=None,
             error_category="timeout",
-            error_message="Graph request timed out",
+        )
+    except Exception:  # noqa: BLE001 — external transport boundary
+        return GraphHttpResult(
+            ok=False,
+            status_code=None,
+            payload=None,
+            error_category="graph_client_exception",
         )
 
 
 def site_path_address(hostname: str, site_path: str) -> str:
     """Build Graph site-by-path segment: ``{hostname}:{server-relative-path}``."""
     path = site_path if site_path.startswith("/") else f"/{site_path}"
-    # urllib will encode the colon path; pass as raw path segment.
     return f"{hostname}:{path}"
-
-
-def _summarize_http_error(status: int, body: str) -> str:
-    code = None
-    message = None
-    if body:
-        try:
-            parsed = json.loads(body)
-        except json.JSONDecodeError:
-            parsed = None
-        if isinstance(parsed, dict):
-            err = parsed.get("error")
-            if isinstance(err, dict):
-                code = err.get("code")
-                message = err.get("message")
-    parts = [f"HTTP {status}"]
-    if code:
-        parts.append(f"code={code}")
-    if message:
-        text = str(message).replace("\n", " ").strip()
-        parts.append(f"message={text[:200]}")
-    return "; ".join(parts)

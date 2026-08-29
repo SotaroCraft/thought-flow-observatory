@@ -29,6 +29,8 @@ The M4 smoke initially used MSAL public-client **Device Code Flow**. A live atte
 
 Human-operated interactive smoke **succeeded** (`auth_mode=delegated_interactive_browser`, scope `Sites.Read.All`): authentication → site_resolve → list_enumerate → metadata_read. Security Defaults were **not** disabled. See `docs/m365-validation.md` §M4. Program status: **M4 SPO PROGRAMMATIC CONNECTIVITY: PASS**.
 
+Permission note: delegated `Sites.Read.All` is accepted for this bounded Human-operated proof with the limitation that effective scope is broader than one selected site; future persistent automation may evaluate `Sites.Selected` (out of scope for M4).
+
 ## Non-goals
 
 - Client secrets / confidential client

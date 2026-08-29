@@ -85,10 +85,13 @@ Sanitized JSON is printed and may be written under the gitignored local data roo
 - `auth_mode=delegated_interactive_browser`
 - `permission_scope=Sites.Read.All`
 - Operations: authentication, site_resolve, list_enumerate, metadata_read
-- Preferred enumerated library display name: `Sources`
+- List enumeration succeeded; preferred library display name `Sources` was found; metadata read succeeded
+- Do **not** interpret the live evidence as a total Lists/Libraries inventory count
 - Constraints confirmed: read_only; no file body download; no site/list IDs in evidence; Graph optional to local core
 - Prior Device Code attempt: AADSTS530035 / Security Defaults (defaults **not** disabled)
+- Permission limitation: delegated `Sites.Read.All` accepted for this bounded Human-operated proof; broader than one site; `Sites.Selected` may be evaluated later for persistent automation (not in M4)
 - Manual SPO fallback remains valid
+- Public-safe failure evidence is allowlisted (classifications / HTTP status / completed ops only)
 
 ## Manual fallback
 

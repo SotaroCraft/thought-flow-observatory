@@ -6,6 +6,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from thought_flow.integrations.sharepoint.sanitize import classify_msal_error_payload
+
 # Delegated read-only SharePoint site/list access for the bounded smoke.
 GRAPH_SCOPES: tuple[str, ...] = ("Sites.Read.All",)
 AUTH_MODE = "delegated_interactive_browser"
@@ -17,8 +19,7 @@ PUBLIC_CLIENT_REDIRECT_URI = "http://localhost"
 class TokenAcquisitionResult:
     ok: bool
     access_token: str | None
-    error_code: str | None
-    error_message: str | None
+    error_classification: str | None
 
 
 class MsalUnavailableError(RuntimeError):
@@ -49,21 +50,47 @@ def acquire_delegated_token_interactive(
     Uses the system browser and ``http://localhost`` redirect (no client secret).
     Access tokens are returned only in memory and must not be logged.
 
-    Device Code Flow is intentionally not used: tenant Security Defaults can
-    block it with AADSTS530035 / BlockedBySecurityDefaults.
+    Failures return a stable ``error_classification`` only — never upstream
+    ``error_description``, URLs, codes, or trace identifiers for public evidence.
     """
-    msal = _import_msal()
-    app = msal.PublicClientApplication(client_id, authority=authority)
+    try:
+        msal = _import_msal()
+    except MsalUnavailableError:
+        raise
 
-    accounts = app.get_accounts()
+    try:
+        app = msal.PublicClientApplication(client_id, authority=authority)
+    except Exception:  # noqa: BLE001 — external SDK boundary
+        return TokenAcquisitionResult(
+            ok=False,
+            access_token=None,
+            error_classification="msal_constructor_failed",
+        )
+
+    accounts: list[Any] = []
+    try:
+        accounts = list(app.get_accounts() or [])
+    except Exception:  # noqa: BLE001 — external SDK boundary
+        return TokenAcquisitionResult(
+            ok=False,
+            access_token=None,
+            error_classification="msal_account_lookup_failed",
+        )
+
     if accounts:
-        silent = app.acquire_token_silent(list(scopes), account=accounts[0])
+        try:
+            silent = app.acquire_token_silent(list(scopes), account=accounts[0])
+        except Exception:  # noqa: BLE001 — external SDK boundary
+            return TokenAcquisitionResult(
+                ok=False,
+                access_token=None,
+                error_classification="msal_silent_failed",
+            )
         if silent and "access_token" in silent:
             return TokenAcquisitionResult(
                 ok=True,
                 access_token=silent["access_token"],
-                error_code=None,
-                error_message=None,
+                error_classification=None,
             )
 
     (prompt or print)(
@@ -73,61 +100,22 @@ def acquire_delegated_token_interactive(
 
     try:
         result = app.acquire_token_interactive(scopes=list(scopes))
-    except Exception as exc:  # noqa: BLE001 — surface sanitized auth failures only
+    except Exception:  # noqa: BLE001 — external SDK boundary
         return TokenAcquisitionResult(
             ok=False,
             access_token=None,
-            error_code=type(exc).__name__,
-            error_message=redact_secrets(str(exc))[:500],
+            error_classification="msal_interactive_failed",
         )
 
     if result and "access_token" in result:
         return TokenAcquisitionResult(
             ok=True,
             access_token=result["access_token"],
-            error_code=None,
-            error_message=None,
+            error_classification=None,
         )
 
     return TokenAcquisitionResult(
         ok=False,
         access_token=None,
-        error_code=str(result.get("error") or "token_acquisition_failed")
-        if isinstance(result, dict)
-        else "token_acquisition_failed",
-        error_message=_safe_error_message(result),
+        error_classification=classify_msal_error_payload(result),
     )
-
-
-def _safe_error_message(payload: Any) -> str:
-    """Build a short error string without echoing tokens or large blobs."""
-    if not isinstance(payload, dict):
-        return "authentication_failed"
-    parts: list[str] = []
-    for key in ("error", "error_description", "message", "error_codes", "suberror"):
-        if key not in payload:
-            continue
-        value = payload[key]
-        text = str(value).replace("\n", " ").strip()
-        # Hard cap; never include fields that look like credentials.
-        if any(token in key.lower() for token in ("token", "secret", "password")):
-            continue
-        if len(text) > 240:
-            text = text[:240] + "…"
-        parts.append(f"{key}={text}")
-    return "; ".join(parts) if parts else "authentication_failed"
-
-
-def redact_secrets(text: str) -> str:
-    """Best-effort redaction if a token accidentally enters a string."""
-    import re
-
-    redacted = text
-    # JWT-shaped blobs
-    redacted = re.sub(
-        r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}",
-        "[REDACTED_JWT]",
-        redacted,
-    )
-    redacted = re.sub(r"(?i)bearer\s+[A-Za-z0-9\-._~+/]+=*", "Bearer [REDACTED]", redacted)
-    return redacted
