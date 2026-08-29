@@ -1,0 +1,194 @@
+{
+  "contract_version": "M6-GATE-CONTRACTS/v1",
+  "status": "FROZEN_PENDING_HUMAN_TBD008",
+  "management_id": "TFO-M6-001",
+  "canonical_architecture": {
+    "model": "separate_sensor_specific_canonical_datasets",
+    "cross_sensor_comparison": "analysis_layer_only",
+    "merged_cross_sensor_measurement_table": false,
+    "shared_numerical_scale": false,
+    "shared_metadata_concepts_allowed": true
+  },
+  "quality_states": {
+    "version": "M5-ERRATUM-001",
+    "states": [
+      "success",
+      "zero",
+      "missing",
+      "unknown",
+      "fetch_failure",
+      "partial"
+    ],
+    "invariants": [
+      "unknown_neq_zero",
+      "missing_neq_zero",
+      "fetch_failure_neq_zero",
+      "partial_neq_success",
+      "partial_is_quality_state_not_desired_m7_mode"
+    ]
+  },
+  "gate_a": {
+    "openalex": {
+      "unit_identity": "openalex_work_id",
+      "dedupe": "deterministic_by_work_id",
+      "theme_counting": "a_work_may_count_once_per_theme_if_independently_matched",
+      "numerator": "country_x_week_x_theme_dict_matching_works",
+      "denominator": "country_x_week_total_works_with_compatible_structured_country_evidence",
+      "denominator_must_not_include_theme_phrase_filter": true,
+      "compatible_semantics_required": [
+        "country",
+        "time",
+        "inclusion"
+      ],
+      "primary_derived_measure": "matched_share",
+      "matched_share_definition": "matched_works / denominator_works",
+      "retain_matched_count": true,
+      "smoke_ceilings_are_not_production_semantics": true
+    },
+    "google_trends": {
+      "measurement": "source_returned_weekly_0_100_within_request_relative_interest",
+      "denominator": "none_source_relative",
+      "scope_identity_must_include_export_or_request": true,
+      "prohibited": [
+        "absolute_cross_country_level_comparison",
+        "normalization_against_openalex",
+        "unified_openalex_trends_index"
+      ]
+    }
+  },
+  "gate_b": {
+    "openalex_observes": "indexed_scholarly_works_matching_frozen_theme_rule_with_structured_country_evidence",
+    "openalex_does_not_observe": [
+      "society",
+      "adoption",
+      "opinion",
+      "researchers_themselves",
+      "causal_diffusion",
+      "social_layer"
+    ],
+    "trends_observes": "google_web_search_within_request_relative_interest_for_frozen_query_geo_scope",
+    "trends_does_not_observe": [
+      "adoption",
+      "opinion",
+      "population_prevalence",
+      "macro_level_society"
+    ],
+    "no_automatic_micro_meso_macro_mapping": true
+  },
+  "gate_c": {
+    "openalex": {
+      "canonical_analysis_time_field": "publication_date",
+      "week_bucket": "ISO_8601_week_UTC_YYYY-Www",
+      "retain_separately": [
+        "created_date",
+        "updated_date",
+        "observed_at",
+        "ingested_at"
+      ],
+      "boundary_weeks": "flag_do_not_pad_or_fabricate",
+      "analysis_window_start_inclusive": "2022-11-30"
+    },
+    "google_trends": {
+      "preserve_source_returned_week_labels": true,
+      "document_week_start_convention": true,
+      "no_lead_lag_correction": true,
+      "no_publication_lag_estimation": true,
+      "no_cross_sensor_temporal_resampling_for_forced_alignment": true,
+      "cross_sensor_timing_comparison": "descriptive_only"
+    }
+  },
+  "gate_d": {
+    "dictionary_version": "THEME-DICT/v1",
+    "seed_from": "PROVISIONAL-M5-SMOKE/2026-08-23-r1",
+    "vocabulary_modified_after_m5": false,
+    "matching": "deterministic_phrase_match_no_llm_primary",
+    "canonical_wording": "THEME-DICT/v1 matching Works",
+    "not_canonical_wording": [
+      "all generative-AI research",
+      "all AI-agent research"
+    ],
+    "m5_review_provenance": {
+      "mode": "human_delegated_ai_assisted",
+      "manual_row_by_row_human_review": false,
+      "agree": 62,
+      "disagree": 11,
+      "unsure": 2,
+      "disagree_interpretation": "observed_disagreement_not_auto_confirmed_false_negative",
+      "unsure_interpretation": "insufficient_context"
+    },
+    "term_emergence_confounding": {
+      "frozen": true,
+      "statement": "Rising match series may reflect underlying activity change and/or terminology adoption; do not silently call this growth of AI research."
+    },
+    "improvements": "THEME-DICT/v2+_only_under_separate_version_review"
+  },
+  "gate_e": {
+    "evidence": "structured_only",
+    "openalex_approved_fields": [
+      "authorships.countries",
+      "institutions.country_code"
+    ],
+    "prohibited_inference": [
+      "name",
+      "language",
+      "llm"
+    ],
+    "trends_geo": "requested_geo_defines_scope",
+    "unknown": {
+      "explicit": true,
+      "unknown_neq_zero": true,
+      "report_measured_ratios": true,
+      "invented_acceptance_threshold": false
+    },
+    "multi_country": {
+      "rule_id": "TBD-008",
+      "proposed_rule": "inclusion_counting",
+      "definition": "A Work with structured evidence for multiple target countries counts once in each distinct target country; denominator uses compatible inclusion semantics; report multi-country rate; no fractionalization in v1.",
+      "human_authority_required": true,
+      "freeze_status": "PROPOSED_AWAITING_HUMAN_RATIFICATION",
+      "sot_basis": [
+        "docs/requirements.md TBD-008",
+        "implementation-plan.md Gate E / TBD-008 reviewer codex-review + Human"
+      ]
+    },
+    "target_countries": ["JP", "US", "KR", "CN"]
+  },
+  "trends_obs1_obs2": {
+    "obs1_status": "eligible_for_sensor_specific_canonical_contract_with_limitations",
+    "obs1_limitations": [
+      "no_obs2_repeat",
+      "source_relative_scale_only",
+      "not_comparable_as_absolute_cross_country_levels"
+    ],
+    "obs2_status": "deferred_not_executed_in_m6",
+    "obs2_blocks_openalex_m7": false
+  },
+  "deferred_or_excluded_from_m6": [
+    "m7_historical_backfill",
+    "m8_analysis",
+    "production_perfect_dictionary",
+    "multilingual_perfection_campaign",
+    "new_75_row_human_review",
+    "trends_transport_b",
+    "company_methodology",
+    "github_methodology",
+    "arxiv_methodology",
+    "cross_sensor_unified_index",
+    "cross_country_trends_normalization",
+    "lead_lag_rule",
+    "statistical_significance_testing",
+    "causal_inference",
+    "dashboard",
+    "generalized_connector_framework"
+  ],
+  "m7_handoff_conditions": {
+    "openalex_raw_backfill_authorized_when": [
+      "m6_decision_record_accepted",
+      "theme_dict_v1_frozen",
+      "gate_a_b_c_d_frozen",
+      "gate_e_structured_evidence_and_unknown_rules_frozen",
+      "tbd008_human_ratification_before_country_canonical_not_blocking_raw_acquisition"
+    ],
+    "note": "Per implementation-plan: M7 Raw may proceed after Gate D; country Canonical requires Gate E including TBD-008 Human ratification."
+  }
+}
