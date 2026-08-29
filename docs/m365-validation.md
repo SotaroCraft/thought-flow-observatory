@@ -14,8 +14,8 @@ M3 and M4 have separate entries below. Do **not** treat Human historical recolle
 | Date | 2026-08-29 |
 | Feature | SPO Research Hub + Copilot Capture / Use / Promote |
 | What was tried | Human live reconfirm of **existing** Research Hub (no rebuild). Verified six Hub surfaces; confirmed seed Sources Kashima (2019), Michel (2011), Shiller (2017); Capture via public URL shortcut and via public research PDF in Sources; Copilot search / read / compare / summarize / original-source check; selective Promote of one Card (Kashima); Card cross-use; 2-week-pause Resume without backlog cleanup. |
-| What worked | **AC-HUB-001〜005 PASS** (AC-HUB-003 with documented limitation). Capture without mandatory tags / classification / summary / Card. PDF-in-Sources path: Copilot read and summarized file body directly. Seeds present and reusable. One Source Used; one valuable Source Promoted (Title mandatory only; Card links to Source). All required surfaces present. Resume without cleanup succeeded. |
-| What did not work / limitations | URL shortcut Capture: discoverable, but body not inside SPO — Copilot needed external access to read. Research Card discoverability weaker than Source retrieval: Copilot found the Source readily; Card cross-use worked when the Research Cards list was **explicitly provided** — classification **CONSTRAINED**, not FAIL. Copilot answer quality not overclaimed. |
+| What worked | **AC-HUB-001〜005 PASS** (AC-HUB-003 with documented limitation). **AC-HUB-001:** PDF/file Capture into Sources completed with **one direct drag-and-drop**; no subsequent mandatory save / confirm / tag / classification / summary / Research Card. Capture without mandatory structure on both paths. PDF-in-Sources path: Copilot read and summarized file body directly. Seeds present and reusable. One Source Used; one valuable Source Promoted (Title mandatory only; Card links to Source). All required surfaces present. Resume without cleanup succeeded. |
+| What did not work / limitations | URL shortcut Capture: ~3 UI steps, no mandatory structure, discoverable, but body not inside SPO — Copilot needed external access to read; URL path is **not** the AC-HUB-001 one-operation evidence. Research Card discoverability weaker than Source retrieval: Copilot found the Source readily; Card cross-use worked when the Research Cards list was **explicitly provided** — classification **CONSTRAINED**, not FAIL. Copilot answer quality not overclaimed. |
 | Required permissions / prerequisites | Human M365 access to existing Research Hub; Copilot entitlement as licensed. |
 | Constraints | No Hub rebuild; no bulk Cards; no Graph expansion; no Power Automate; no ingestion Agent in this milestone. Prefer PDF/file in Sources when rights allow; use URL when rights/storage prefer external canonical. Do not commit redistribution-unclear PDFs to GitHub. |
 | Usefulness to Research Hub | Proves manual Capture → Use → selective Promote primitives and Hub surfaces for ongoing research (requirements §§13, FR-HUB, FR-INT-001). |
@@ -26,7 +26,7 @@ M3 and M4 have separate entries below. Do **not** treat Human historical recolle
 
 | AC | Verdict | Limitation |
 |---|---|---|
-| AC-HUB-001 | PASS | PDF Capture without mandatory structure. URL path ~3 UI steps (not a single click); still no mandatory post-Capture classification/Card. |
+| AC-HUB-001 | PASS | One-operation evidence: **one direct drag-and-drop** of PDF/file into Sources; no mandatory follow-up. Limitation: URL shortcut path remained ~3 UI steps and is **not** the one-operation evidence. |
 | AC-HUB-002 | PASS | Seeds present; Use without Card; ≥1 Used; selective Promote with Source link-back. |
 | AC-HUB-003 | PASS with limitation | Search/read/compare/summarize/original-source OK. Card cross-use **CONSTRAINED** (needs explicit Card surface). |
 | AC-HUB-004 | PASS | Resume without backlog cleanup. |

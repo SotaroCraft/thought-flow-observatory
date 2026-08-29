@@ -18,7 +18,7 @@ Answer yes / no / unknown (or constrained where noted). Do not paste tenant URLs
 | 7 | Home / Methodology / Current Findings / M365 Validation Log surfaces exist at least minimally | yes | |
 | 8 | Research Cards surface exists and is reachable | yes | Initially zero items; one Card added selectively |
 | 9 | Seed sources present: Kashima (2019), Michel (2011), Shiller (2017) | yes | Reused existing captures |
-| 10 | New public Source can be Captured without mandatory post-Capture classification | yes | URL shortcut ~3 UI steps; PDF upload also without mandatory structure |
+| 10 | New public Source can be Captured within 原則1操作以内 without mandatory post-Capture structure | yes | **PDF/file:** one direct drag-and-drop into Sources; no save/confirm/tag/classification/summary/Card afterward (AC-HUB-001 one-operation proof). **URL shortcut:** ~3 UI steps; no mandatory structure; valid Capture but **not** the one-operation evidence |
 | 11 | Unpromoted Source remains usable (Card not required for Use) | yes | |
 | 12 | At least one Source was actually Used (Copilot or research) | yes | Including detailed PDF summary from SPO-stored file |
 | 13 | Research Card cross-use with Sources | constrained | Copilot found Source readily; Card discovered reliably only when Research Cards list was explicitly provided. Classification: CONSTRAINED, not FAIL |
@@ -29,8 +29,8 @@ Answer yes / no / unknown (or constrained where noted). Do not paste tenant URLs
 
 | Path | Capture load | Copilot body access | Notes |
 |---|---|---|---|
-| URL / shortcut | Low (~3 UI steps); no mandatory structure | Shortcut discoverable; document body not inside SPO — Copilot needed external access to read | Valid Capture; weaker grounding |
-| PDF / file in Sources | Low; no mandatory structure | Copilot read and summarized PDF directly from SPO | Preferred corpus form when redistribution/storage rights allow |
+| URL / shortcut | ~3 UI steps; no mandatory structure | Shortcut discoverable; document body not inside SPO — Copilot needed external access to read | Valid Capture; weaker grounding; **not** AC-HUB-001 one-operation proof |
+| PDF / file in Sources | **One direct drag-and-drop**; no further mandatory action (no save/confirm/tag/classification/summary/Card) | Copilot read and summarized PDF directly from SPO | Preferred corpus form when redistribution/storage rights allow; **AC-HUB-001 one-operation evidence** |
 
 Do **not** commit copyrighted or redistribution-unclear PDFs to GitHub.
 
