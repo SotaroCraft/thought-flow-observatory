@@ -265,3 +265,14 @@ No row-level review, no dictionary micro-delta, and no Obs2 execution were reque
 - [x] RF acceptance included in Human bundle
 
 M6 METHODOLOGY FREEZE STATUS: FROZEN — HUMAN APPROVED
+
+---
+
+## 14. Codex Repository review
+
+| Review ID | Base | HEAD | Verdict |
+|---|---|---|---|
+| TFO-M6-001-R1 | `a9a3a7b…` | `a343bab…` | **REWORK** (RF bundle wording; unknown ≠ non-target code) |
+| TFO-M6-001-R2 | `a9a3a7b…` | `064f688…` | **PASS — M6 FREEZE READY FOR HUMAN** (R1 findings resolved; no new regressions) |
+
+R2 notes: focused M6 tests passed; no Raw/secrets/adjacent-milestone implementation; TBD-009 remains deferred to M8.
