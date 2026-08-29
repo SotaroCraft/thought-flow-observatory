@@ -226,6 +226,77 @@ def run_m5_openalex_smoke(*, live: bool = False, diagnostic_cell: bool = False) 
         return 1
 
 
+def run_m5_trends_alpha_status() -> int:
+    """Print public-safe Trends alpha route assessment (no network)."""
+    from thought_flow.smoke.trends.alpha_route import assess_alpha_route
+
+    print(json.dumps(assess_alpha_route().to_public_dict(), indent=2, ensure_ascii=False))
+    return 0
+
+
+def run_m5_trends_csv_import(
+    *,
+    country: str,
+    csv_path: Path,
+    observation_index: int,
+) -> int:
+    """Import a Human-exported official Trends CSV into local M5 smoke workspace."""
+    from thought_flow.smoke.trends.csv_import import import_human_csv
+
+    settings = load_settings()
+    settings.ensure_directories()
+    try:
+        summary = import_human_csv(
+            csv_path=csv_path,
+            country=country.upper(),
+            data_root=settings.data_root,
+            code_revision=_code_revision(settings.repo_root),
+            observation_index=observation_index,
+        )
+        print(json.dumps(summary, indent=2, ensure_ascii=False))
+        return 0 if summary.get("status") == "succeeded" else 1
+    except Exception as exc:  # noqa: BLE001
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "failure_category": type(exc).__name__,
+                    "failure_message": str(exc)[:500],
+                    "ui_automation": False,
+                    "alpha_route_used": False,
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
+        return 1
+
+
+def run_m5_trends_alpha_live_blocked() -> int:
+    """Hard-block live alpha acquisition until invitation docs exist."""
+    from thought_flow.smoke.trends.alpha_route import refuse_alpha_live_call
+
+    try:
+        refuse_alpha_live_call()
+    except RuntimeError as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "blocked",
+                    "reason": str(exc),
+                    "fallback": "m5-trends-csv-import",
+                    "production_connector": False,
+                    "ui_automation": False,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return 2
+    return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="thought-flow",
@@ -269,6 +340,28 @@ def build_parser() -> argparse.ArgumentParser:
             "Not a formal M5 SMOKE-PASS."
         ),
     )
+
+    sub.add_parser(
+        "m5-trends-alpha-status",
+        help="Show Trends alpha public-doc route assessment (no network).",
+    )
+    sub.add_parser(
+        "m5-trends-alpha-live",
+        help="Blocked placeholder: refuses undocumented/live alpha until invitation docs exist.",
+    )
+
+    trends_import = sub.add_parser(
+        "m5-trends-csv-import",
+        help="Import Human-exported official Trends UI CSV (no UI automation).",
+    )
+    trends_import.add_argument("--country", required=True, help="JP|US|KR|CN")
+    trends_import.add_argument("--csv", type=Path, required=True, help="Path to official CSV export")
+    trends_import.add_argument(
+        "--observation-index",
+        type=int,
+        default=1,
+        help="1 = first observation; 2 = repeat (do not fabricate).",
+    )
     return parser
 
 
@@ -285,6 +378,16 @@ def main(argv: list[str] | None = None) -> int:
         return run_m5_openalex_smoke(
             live=args.live,
             diagnostic_cell=getattr(args, "diagnostic_cell", False),
+        )
+    if args.command == "m5-trends-alpha-status":
+        return run_m5_trends_alpha_status()
+    if args.command == "m5-trends-alpha-live":
+        return run_m5_trends_alpha_live_blocked()
+    if args.command == "m5-trends-csv-import":
+        return run_m5_trends_csv_import(
+            country=args.country,
+            csv_path=args.csv,
+            observation_index=args.observation_index,
         )
     parser.error(f"Unknown command: {args.command}")
     return 2
