@@ -1,6 +1,6 @@
 # M5 Bounded Sensor Smoke Specification
 
-- Status: FROZEN (+ Erratum-001). No connector or backfill is implemented by this document.
+- Status: FROZEN (+ Erratum-001, + Erratum-002). No connector or backfill is implemented by this document.
 - Source of Truth: `docs/requirements.md` v1.0, then frozen `implementation-plan.md` v1.0.
 - Design inputs: `docs/decisions/m5-sensor-preflight.md` and its external-review PASS in `chatgpt-m5-preflight-review.md`.
 - Scope: M5 smoke mechanics only.
@@ -98,7 +98,7 @@ The approved M5 preflight remains closed scope for eliminated or limited-role ca
 
 - Job postings are `NO-GO` for the MVP; do not implement or smoke them without a new Human-approved requirements/design decision.
 - Issuer IR pages are not a primary Company-sensor acquisition route; use them only as bounded evidence or fallback links.
-- Unofficial Google Trends libraries and undocumented endpoints are `NO-GO`.
+- Unofficial Google Trends libraries remain `NO-GO`. Undocumented Trends Explore/widget endpoints remain prohibited **except** for the conditional M5-only Transport B path defined by **Erratum-002** (dual live gate required; see Erratum-002).
 - GH Archive is not an MVP fallback and requires a separate privacy/requirements decision.
 - arXiv remains fallback/corroboration only unless a later reviewed decision changes its role.
 
@@ -216,7 +216,11 @@ Alpha is `SMOKE-PASS`/`WITH-LIMITATIONS` only if all eight term series cover 202
 
 ### 6.3 B — official UI CSV fallback
 
-This is a Human-operated, bounded fallback; Cursor may validate/import the resulting files but MUST NOT automate an undocumented web endpoint or use an unofficial client.
+This is a Human-operated, bounded fallback; Cursor may validate/import the resulting files but MUST NOT automate browser login or an unofficial client library.
+
+Automating undocumented Explore/widget network endpoints for CSV acquisition is prohibited **except** under **Erratum-002** (M5-only Transport B) when **both** live gates are satisfied. Erratum acceptance alone does **not** authorize a live request. If either gate is absent, record `SMOKE-BLOCKED` and make no Transport B live request.
+
+Transport A (this subsection) remains the required fallback whenever Transport B is unavailable or unauthorized.
 
 For each country:
 
@@ -436,7 +440,7 @@ Handoff also includes all Raw/query identities, coverage tables, licensing/publi
 Cursor MUST stop the affected smoke and return facts, impact, and options instead of improvising when:
 
 - applicable terms, storage rights, redistribution rights, quota, cost, or access route are unverified;
-- access would require broad scraping, an unofficial Trends client, or an undocumented web endpoint;
+- access would require broad scraping, an unofficial Trends client library, or an undocumented web endpoint **outside** the conditional Erratum-002 Transport B dual-gate path;
 - a permission scope broader than the approved read-only/bounded route is required;
 - person-level GitHub or other personal data becomes necessary, even if it could be hashed;
 - country assignment requires name, language, institution-name lookup not approved by requirements, listing venue, or LLM inference;
@@ -455,7 +459,7 @@ Independent smokes may continue. The blocked source and dependent RF/M7 step may
 - [x] `PROVISIONAL-M5-SMOKE` is explicit, versioned, narrow, and replaceable.
 - [x] Standalone `agent` never qualifies.
 - [x] No personal-data acquisition path was added; GitHub is Organization/Repository-only and arXiv extracted artifacts omit person identities.
-- [x] No unofficial Trends client or scripted undocumented endpoint is permitted.
+- [x] No unofficial Trends client library is permitted. Undocumented Explore/widget endpoints are permitted only under Erratum-002 with the dual live gate (otherwise prohibited).
 - [x] No broad scraping is permitted; China has an early legal/access stop.
 - [x] Company sources and denominators remain source-specific.
 - [x] Cross-sensor raw values are not treated as comparable and sensors are not social layers.
@@ -493,4 +497,37 @@ Independent smokes may continue. The blocked source and dependent RF/M7 step may
 - Derived evidence MAY be regenerated under a versioned path that preserves original run artifacts and provenance.
 - M6 Gate A–E remain unfrozen.
 
-M5 SMOKE SPEC STATUS: FROZEN (+ Erratum-001)
+## Erratum-002 — M5 Trends Explore/widget Transport Exception
+
+- Status: Normative patch to this FROZEN M5 smoke specification (text landed on the implementing branch; **Accepted on `main` only after merge**).
+- Date: 2026-08-29
+- Scope: M5 Trends **acquisition transport mechanics only**. Does **not** change countries, probes, `TRENDS-FULL`, Term mode, category, property, quality states, zero semantics, RF, M6, or production `GO`.
+
+### Sections narrowed
+
+This Erratum narrowly amends only:
+
+- §3.1 (undocumented Trends endpoint absolute NO-GO wording)
+- §6.3 (UI CSV path absolute ban on undocumented endpoint automation)
+- §15 (stop condition for undocumented Trends endpoints)
+- §16 self-review bullet on Trends undocumented endpoints
+
+### Patch
+
+1. Permit an optional M5-only **Transport B** that fetches official Explore multiline **CSV bytes** via Trends Explore/widget endpoints (`/trends/api/explore` → TIMESERIES `request`/`token` → `/trends/api/widgetdata/multiline/csv`), solely as acquisition transport.
+2. Transport B is **not** a documented public API and may change without notice. It is **not** a production connector, scheduler, or Canonical dependency.
+3. Transport B failure (HTTP error, missing TIMESERIES, 429, parse failure, empty CSV) is acquisition failure / `fetch_failure` / `SMOKE-BLOCKED` as applicable — **never** a valid Trends numeric `zero`.
+4. **Dual live gate (both required before any Transport B live request):**
+   1. Erratum-002 is **Accepted on `main`** (merged normative text), and
+   2. Dated Human-approved evidence exists for applicable **terms**, **automated access**, **storage**, and **publication**.
+5. **Erratum acceptance alone MUST NOT authorize a live request.** If either gate is absent → record `SMOKE-BLOCKED` and make **no** Transport B live request.
+6. **Transport A** (Human official UI CSV Download + post-download import) remains required fallback.
+7. Cookies, auth headers, account/session identifiers, and private URLs MUST NOT be persisted in the repository or public artifacts.
+8. TFO Acquisition Contract remains the sole authority for geo / probes / period / category / property / Term mode / quality / zero semantics.
+
+### Non-goals
+
+- No change to RF final, M6 Gate A–E, production `GO`, or research semantics listed above.
+- No authorization of unofficial client libraries (e.g. pytrends) or browser UI automation.
+
+M5 SMOKE SPEC STATUS: FROZEN (+ Erratum-001, + Erratum-002)

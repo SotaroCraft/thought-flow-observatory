@@ -29,6 +29,14 @@ uv run thought-flow m4-graph-spo-smoke --live
 
 External credentials are never required for local M1 smoke or unit tests.
 
-## Later runbooks
+## M5 OpenAlex / Trends (smoke only)
 
-Weekly differential runs and further cloud procedures will be added in later milestones.
+- OpenAlex: `uv run thought-flow m5-smoke-openalex --live`
+- Trends acquisition (Human CSV import; no UI automation): `docs/operations/m5-trends-acquisition.md`
+
+```bash
+uv run thought-flow m5-trends-alpha-status
+uv run thought-flow m5-trends-csv-import --country US --csv data/samples/m5_trends_ui_synthetic_us.csv --observation-index 1
+```
+
+Trends live Raw/CSV evidence remains under gitignored `workspace-data/` unless a frozen licensing decision permits publication.

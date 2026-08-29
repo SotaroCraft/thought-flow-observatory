@@ -55,3 +55,13 @@ OPENALEX_PERIOD_BY_ID: dict[str, SmokePeriod] = {p.period_id: p for p in OPENALE
 
 OPENALEX_COUNTRIES: tuple[str, ...] = ("JP", "US", "KR", "CN")
 OPENALEX_THEMES: tuple[str, ...] = ("generative_ai", "ai_agent")
+
+TRENDS_FULL = SmokePeriod(
+    period_id="TRENDS-FULL",
+    inclusive_start=date(2022, 11, 30),
+    inclusive_end=date(2026, 8, 16),
+    half_open_end=date(2026, 8, 17),
+)
+
+TRENDS_COUNTRIES: tuple[str, ...] = ("JP", "US", "KR", "CN")
+TRENDS_THEMES: tuple[str, ...] = ("generative_ai", "ai_agent")
