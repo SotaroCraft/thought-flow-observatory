@@ -1,7 +1,18 @@
 {
   "contract_version": "M6-GATE-CONTRACTS/v1",
-  "status": "FROZEN_PENDING_HUMAN_TBD008",
+  "status": "FROZEN_HUMAN_APPROVED",
   "management_id": "TFO-M6-001",
+  "human_approval": {
+    "date": "2026-08-29",
+    "signal": "承認",
+    "accepted": [
+      "m5_rf_pass_with_limitations",
+      "delegated_vocabulary_review_sufficient_for_rf6_with_limitation",
+      "gates_a_b_c_d_frozen",
+      "gate_e_structured_and_unknown_rules",
+      "tbd008_inclusion_counting"
+    ]
+  },
   "canonical_architecture": {
     "model": "separate_sensor_specific_canonical_datasets",
     "cross_sensor_comparison": "analysis_layer_only",
@@ -137,15 +148,18 @@
     "unknown": {
       "explicit": true,
       "unknown_neq_zero": true,
+      "definition": "no_structured_country_code_present",
+      "non_target_structured_code_is_not_unknown": true,
       "report_measured_ratios": true,
       "invented_acceptance_threshold": false
     },
     "multi_country": {
       "rule_id": "TBD-008",
-      "proposed_rule": "inclusion_counting",
+      "rule": "inclusion_counting",
       "definition": "A Work with structured evidence for multiple target countries counts once in each distinct target country; denominator uses compatible inclusion semantics; report multi-country rate; no fractionalization in v1.",
       "human_authority_required": true,
-      "freeze_status": "PROPOSED_AWAITING_HUMAN_RATIFICATION",
+      "freeze_status": "FROZEN_HUMAN_RATIFIED",
+      "human_ratification_date": "2026-08-29",
       "sot_basis": [
         "docs/requirements.md TBD-008",
         "implementation-plan.md Gate E / TBD-008 reviewer codex-review + Human"

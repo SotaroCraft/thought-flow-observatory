@@ -13,7 +13,9 @@ from thought_flow.methodology.country_rules import (
     is_multi_country,
     is_unknown_country,
     matched_share,
+    structured_country_codes,
 )
+
 from thought_flow.methodology.theme_dict import (
     classify_with_theme_dict_v1,
     load_theme_dict_v1,
@@ -39,5 +41,6 @@ __all__ = [
     "load_theme_dict_v1",
     "matched_share",
     "openalex_iso_week_id",
+    "structured_country_codes",
     "theme_terms_unchanged_from_m5_seed",
 ]

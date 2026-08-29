@@ -1,4 +1,4 @@
-"""Gate E country helpers — structured evidence only; inclusion counting (TBD-008 proposed)."""
+"""Gate E country helpers — structured evidence only; inclusion counting (TBD-008)."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ TARGET_COUNTRIES: frozenset[str] = frozenset({"JP", "US", "KR", "CN"})
 
 
 def _normalize_code(code: str | None) -> str | None:
+    """Normalize an already-structured country code. No name/language/LLM inference."""
     if code is None:
         return None
     value = str(code).strip().upper()
@@ -16,31 +17,40 @@ def _normalize_code(code: str | None) -> str | None:
     return value
 
 
-def structured_target_countries(codes: Iterable[str | None]) -> frozenset[str]:
-    """Return distinct target-country codes present in structured evidence only."""
+def structured_country_codes(codes: Iterable[str | None]) -> frozenset[str]:
+    """
+    Distinct structured country codes present on the Work (any country).
+
+    `unknown` is defined over this set: empty ⇒ unknown.
+    Non-target codes (e.g. DE) remain structured evidence and are NOT unknown.
+    """
     out: set[str] = set()
     for raw in codes:
         code = _normalize_code(raw)
         if code is None:
             continue
-        # No name/language/LLM inference — only accept explicit codes already present.
-        if code in TARGET_COUNTRIES:
-            out.add(code)
+        out.add(code)
     return frozenset(out)
 
 
+def structured_target_countries(codes: Iterable[str | None]) -> frozenset[str]:
+    """Distinct target-country codes (JP/US/KR/CN) present in structured evidence."""
+    return frozenset(c for c in structured_country_codes(codes) if c in TARGET_COUNTRIES)
+
+
 def is_unknown_country(codes: Iterable[str | None]) -> bool:
-    """True when no structured target-country code is present (unknown ≠ zero)."""
-    return len(structured_target_countries(codes)) == 0
+    """True when no structured country code is present at all (unknown ≠ zero)."""
+    return len(structured_country_codes(codes)) == 0
 
 
 def is_multi_country(codes: Iterable[str | None]) -> bool:
+    """Multi-country among target countries (inclusion-counting scope)."""
     return len(structured_target_countries(codes)) >= 2
 
 
 def inclusion_country_hits(codes: Iterable[str | None]) -> frozenset[str]:
     """
-    Inclusion counting (TBD-008 proposed): count once in each distinct target country.
+    Inclusion counting (TBD-008): count once in each distinct target country.
 
     Denominator construction for a country C must use the same predicate:
     Work has structured evidence for C (theme filter MUST NOT apply to denominator).
@@ -78,7 +88,6 @@ def assert_denominator_query_theme_independent(query_params: dict[str, object]) 
         raise ValueError(f"not a denominator query_kind: {kind!r}")
     forbidden_keys = {"search", "theme", "theme_phrase", "provisional_phrase", "dictionary_phrase"}
     present = forbidden_keys.intersection(query_params)
-    # Also reject non-empty search-like values under alternate keys.
     if present:
         raise ValueError(f"denominator must not include theme filters: {sorted(present)}")
     search_val = query_params.get("filter_search") or query_params.get("q")

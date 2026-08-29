@@ -12,7 +12,7 @@ M1 does not freeze sensor sources, dictionaries, country aggregation, or metrics
 | TBD-004 | Captured / Used / Promoted representation | Decided (M3) — see [`m3-hub-corpus-workflow.md`](m3-hub-corpus-workflow.md) |
 | TBD-005 | Graph / Entra auth, API permissions, admin consent | Decided (M4) — see [`m4-auth-interactive-browser.md`](m4-auth-interactive-browser.md); indexed by [`m2-external-readiness.md`](m2-external-readiness.md) |
 | TBD-007 | Theme dictionary v1 | **Frozen** as `THEME-DICT/v1` (unchanged seed of M5 provisional) — see [`m6-methodology-freeze.md`](m6-methodology-freeze.md) |
-| TBD-008 | Multi-country aggregation | **Proposed** inclusion counting — **Human ratification required** before country Canonical — see [`m6-methodology-freeze.md`](m6-methodology-freeze.md) |
+| TBD-008 | Multi-country aggregation | **Frozen** — inclusion counting; Human ratified 2026-08-29 (`承認`) — see [`m6-methodology-freeze.md`](m6-methodology-freeze.md) |
 | TBD-009 | MVP metrics / thresholds | Open (pre-analysis / M8; not frozen by M6 minimal package) |
 | TBD-011 | Azure Blob adopt/defer | M2 **NO-GO** / not adopted for current PoC — see [`m2-external-readiness.md`](m2-external-readiness.md); plan allows M10 reconsideration before optional Spike |
 | TBD-012 | Azure AI Foundry adopt/defer | M2 **NO-GO** / not adopted for current PoC — see [`m2-external-readiness.md`](m2-external-readiness.md); plan allows M10 reconsideration before optional Spike |
@@ -42,7 +42,7 @@ Trends acquisition ops (Transport A Human CSV; Transport B gated): [`docs/operat
 
 | Document | Topic | Status |
 |---|---|---|
-| [`m6-methodology-freeze.md`](m6-methodology-freeze.md) | Gate A–E + data contract minimal freeze (OpenAlex + Trends Transport A); separate Canonical datasets | Cursor freeze package; TBD-008 pending Human |
+| [`m6-methodology-freeze.md`](m6-methodology-freeze.md) | Gate A–E + data contract minimal freeze (OpenAlex + Trends Transport A); separate Canonical datasets | **FROZEN — Human approved** (`承認` 2026-08-29); TBD-008 ratified |
 
 ## M3 records
 

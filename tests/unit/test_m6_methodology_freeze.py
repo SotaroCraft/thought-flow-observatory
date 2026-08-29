@@ -44,8 +44,11 @@ def test_gate_contracts_load_and_architecture() -> None:
     assert c["gate_a"]["openalex"]["denominator_must_not_include_theme_phrase_filter"] is True
     assert c["gate_d"]["vocabulary_modified_after_m5"] is False
     assert c["gate_d"]["dictionary_version"] == THEME_DICT_VERSION
-    assert c["gate_e"]["multi_country"]["human_authority_required"] is True
+    assert c["status"] == "FROZEN_HUMAN_APPROVED"
+    assert c["gate_e"]["multi_country"]["freeze_status"] == "FROZEN_HUMAN_RATIFIED"
+    assert c["gate_e"]["unknown"]["non_target_structured_code_is_not_unknown"] is True
     assert c["gate_e"]["unknown"]["invented_acceptance_threshold"] is False
+    assert "m5_rf_pass_with_limitations" in c["human_approval"]["accepted"]
     assert c["trends_obs1_obs2"]["obs2_blocks_openalex_m7"] is False
     excluded = set(c["deferred_or_excluded_from_m6"])
     assert "m7_historical_backfill" in excluded
@@ -131,9 +134,10 @@ def test_inclusion_counting_unknown_and_multi_country() -> None:
     assert is_unknown_country([]) is True
     assert is_unknown_country([None, ""]) is True
     assert is_unknown_country(["JP"]) is False
-    # Non-target structured codes do not invent target membership.
+    # Non-target structured codes: not unknown; also not target inclusion hits.
     assert inclusion_country_hits(["DE", "FR"]) == frozenset()
-    assert is_unknown_country(["DE"]) is True
+    assert is_unknown_country(["DE"]) is False
+    assert is_unknown_country(["DE", "JP"]) is False
 
 
 def test_openalex_iso_week_and_boundary_flag() -> None:

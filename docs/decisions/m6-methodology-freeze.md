@@ -1,16 +1,16 @@
 # M6 Methodology Gates A–E + Data Contract Freeze
 
-- Status: **Cursor freeze package** for Human / Codex ratification. Gate A–D frozen as written. Gate E multi-country (**TBD-008**) is **proposed** and requires one bounded Human authority decision before country-level Canonical generation.
+- Status: **FROZEN — Human approved** (`承認`, 2026-08-29). Gates A–E including TBD-008 inclusion counting are frozen. M5 `RF PASS WITH LIMITATIONS` (delegated vocabulary review sufficient for RF #6 WITH LIMITATION) accepted as part of the same bounded approval.
 - Management ID: **TFO-M6-001**
 - Date: 2026-08-29
-- Base commit (expected `origin/main` at branch start): `a9a3a7befcc741f8e54f3ede595acab80d9b0650`
+- Base commit (branch start): `a9a3a7befcc741f8e54f3ede595acab80d9b0650`
 - Source of Truth: `docs/requirements.md` v1.0; frozen `implementation-plan.md` v1.0; M5 smoke-spec (+ Errata); [`m5-narrow-closeout.md`](m5-narrow-closeout.md); [`m5-openalex-vocabulary-review.md`](m5-openalex-vocabulary-review.md); `AGENTS.md`.
 - Machine-readable companion: [`config/rules/m6_gate_contracts_v1.json`](../../config/rules/m6_gate_contracts_v1.json)
 - Theme dictionary: [`config/themes/theme_dict_v1.json`](../../config/themes/theme_dict_v1.json) (`THEME-DICT/v1`)
 
 This record freezes the **minimum** scientifically defensible methodology for OpenAlex + Google Trends Transport A so M7 Raw backfill and M8 Canonical Finding can proceed **without** importing M5 smoke ceilings, deferred sensors, or exploratory preview machinery.
 
-**Does not authorize M7/M8 implementation in this milestone.** Does **not** start backfill, analysis, Obs2, Transport B, Company, GitHub, or arXiv methodology.
+**Does not implement M7/M8 in this milestone.** Does **not** start backfill, analysis, Obs2, Transport B, Company, GitHub, or arXiv methodology.
 
 ---
 
@@ -134,7 +134,7 @@ Improvements → **`THEME-DICT/v2+`** only, under separate versioned review. M7 
 
 Terms such as `generative AI`, `agentic AI`, `AI智能体`, and related dictionary phrases themselves emerged and spread during the study period. A rising match series may reflect some combination of:
 
-1. change in underlying activity, and/or  
+1. change in underlying activity, and/or
 2. change in terminology adoption.
 
 The first Canonical Finding **MUST NOT** silently call this “growth of AI research.” Prefer: **growth in Works matching THEME-DICT/v1 terminology**.
@@ -150,15 +150,15 @@ The first Canonical Finding **MUST NOT** silently call this “growth of AI rese
 | OpenAlex evidence | Structured only — e.g. `authorships.countries`, institution `country_code` (as already used in M5 privacy-reduced envelopes) |
 | Prohibited | Name inference; language inference; LLM inference |
 | Trends geo | Requested geo parameter defines geographic scope |
-| `unknown` | Explicit category; **`unknown ≠ zero`**; report measured ratios where relevant |
+| `unknown` | Explicit category when **no structured country code** is present; **`unknown ≠ zero`**; report measured ratios where relevant. A Work with only non-target structured codes (e.g. `DE`) is **not** `unknown` — it simply does not enter JP/US/KR/CN inclusion counts |
 | Invented acceptance threshold for unknown | **MUST NOT** invent one merely to close M6 |
 | Target countries | `JP`, `US`, `KR`, `CN` |
 
-### 6.2 Multi-country counting — TBD-008 (**ONE BOUNDED HUMAN APPROVAL REQUIRED**)
+### 6.2 Multi-country counting — TBD-008 (**FROZEN — Human ratified**)
 
-Per `docs/requirements.md` TBD-008 and `implementation-plan.md` Gate E Decision Table (`codex-review` + **Human**), multi-country aggregation requires Human authority before country-level Canonical.
+Per `docs/requirements.md` TBD-008 and `implementation-plan.md` Gate E Decision Table (`codex-review` + **Human**), multi-country aggregation required Human authority before country-level Canonical.
 
-**Program-Control recommended rule (proposed freeze):**
+**Rule (Human-ratified 2026-08-29):**
 
 | Field | Value |
 |---|---|
@@ -168,11 +168,9 @@ Per `docs/requirements.md` TBD-008 and `implementation-plan.md` Gate E Decision 
 | Fractionalization | **Not** in v1 |
 | Reporting | Report multi-country rate alongside country figures |
 | Raw | Preserve multi-country evidence; do not collapse |
+| Freeze status | **FROZEN — Human ratified (`承認`, 2026-08-29)** |
 
-| Freeze status | **PROPOSED — awaiting Human ratification of TBD-008** |
-|---|---|
-
-**M7 implication (plan-aligned):** Raw acquisition for OpenAlex MAY proceed after Gate D freeze. **Country-level Canonical** MUST wait for Human ratification of TBD-008 (or an explicit alternate counting rule recorded as a new version).
+**M7 implication (plan-aligned):** Raw acquisition for OpenAlex MAY proceed after Gate D freeze. Country-level Canonical MAY use TBD-008 inclusion counting as frozen.
 
 ---
 
@@ -202,12 +200,12 @@ Promotion of Trends series to Canonical does **not** require merging scales with
 
 Do **not** build or freeze in M6:
 
-- M7 historical backfill; M8 analysis  
-- Production-perfect / multilingual-perfection dictionary campaign; new 75-row Human review  
-- Trends Transport B; Company methodology; GitHub methodology; arXiv methodology (fallback only if later triggered)  
-- Cross-sensor unified index; cross-country Trends normalization  
-- Lead/lag rule; statistical significance testing; causal inference; dashboard  
-- Generalized connector framework; temporal orchestration; new cloud infrastructure  
+- M7 historical backfill; M8 analysis
+- Production-perfect / multilingual-perfection dictionary campaign; new 75-row Human review
+- Trends Transport B; Company methodology; GitHub methodology; arXiv methodology (fallback only if later triggered)
+- Cross-sensor unified index; cross-country Trends normalization
+- Lead/lag rule; statistical significance testing; causal inference; dashboard
+- Generalized connector framework; temporal orchestration; new cloud infrastructure
 
 Current PoC sensor disposition (from M5 narrow close-out): OpenAlex **KEEP**; Trends Transport A **KEEP**; Transport B / GitHub **DEFER**; Company four-country comparative **DROP**; arXiv **fallback only**.
 
@@ -220,44 +218,50 @@ Current PoC sensor disposition (from M5 narrow close-out): OpenAlex **KEEP**; Tr
 | Gate contracts JSON | `M6-GATE-CONTRACTS/v1` |
 | Theme dictionary | `THEME-DICT/v1` |
 | Quality states | M5 Erratum-001 vocabulary |
-| Proposed country multi-count rule | TBD-008 / inclusion counting (pending Human) |
+| Country multi-count rule | TBD-008 / inclusion counting (**Human ratified 2026-08-29**) |
 | Rule module (code) | `thought_flow.methodology` helpers — contract enforcement fixtures only; **not** M7 connectors |
 
-Canonical regeneration MUST record dictionary version, aggregation/country rule version (after TBD-008 ratification), time rule version, and input Raw snapshot identity.
+Canonical regeneration MUST record dictionary version, aggregation/country rule version, time rule version, and input Raw snapshot identity.
 
 ---
 
 ## 11. M7 / M8 handoff conditions
 
-1. This Decision Record accepted (with TBD-008 Human ratification for country Canonical).  
-2. `THEME-DICT/v1` frozen and unchanged from M5 provisional seed.  
-3. Gate A denominator remains theme-independent; Gate B/C wording preserved.  
-4. M7 OpenAlex backfill uses full lawful pagination — not M5 smoke ceilings — and append-only Raw.  
-5. M8 builds **separate** sensor Canonical tables; first Finding uses THEME-DICT/v1 wording and term-emergence limitation.  
+1. This Decision Record Human-approved (including RF acceptance and TBD-008).
+2. `THEME-DICT/v1` frozen and unchanged from M5 provisional seed.
+3. Gate A denominator remains theme-independent; Gate B/C wording preserved.
+4. M7 OpenAlex backfill uses full lawful pagination — not M5 smoke ceilings — and append-only Raw.
+5. M8 builds **separate** sensor Canonical tables; first Finding uses THEME-DICT/v1 wording and term-emergence limitation.
 6. No M7/M8 work is started by this M6 package itself.
 
 ---
 
-## 12. Human action (single bounded approval)
+## 12. Human approval (bounded bundle — ACCEPTED)
 
-Human should ratify **one** bundled item if accepting this freeze:
+Human signal: **`承認`** (2026-08-29).
 
-> **Accept M6 Gate A–D + Gate E structured/unknown rules as frozen, and ratify TBD-008 multi-country rule = inclusion counting** (or reject with an alternate rule version).
+Accepted as one bundled decision:
 
-No row-level review, no dictionary micro-delta menu, and no Obs2 execution is requested for this freeze.
+1. **M5 `RF PASS WITH LIMITATIONS`** via OpenAlex-alone route, including acceptance that Human-delegated AI-assisted vocabulary review is sufficient for RF §12.1 #6 **WITH LIMITATION** (not manual row-by-row review).
+2. **M6 Gates A–D** and Gate E structured-evidence / unknown rules as frozen in this record (unknown = no structured country code; non-target codes ≠ unknown).
+3. **TBD-008** multi-country rule = **inclusion counting**.
+
+No row-level review, no dictionary micro-delta, and no Obs2 execution were requested or performed for this freeze.
 
 ---
 
 ## 13. Self-check
 
-- [x] Separate Canonical datasets; no merged scale  
-- [x] Gate A denominator theme-independent  
-- [x] Gate D = r1 seed unchanged; delegated-review provenance accurate  
-- [x] Term-emergence confounding explicit  
-- [x] No invented unknown threshold  
-- [x] No country inference  
-- [x] Deferred sensors not re-entered  
-- [x] M7/M8 not implemented here  
-- [x] TBD-008 Human authority identified, not worked around  
+- [x] Separate Canonical datasets; no merged scale
+- [x] Gate A denominator theme-independent
+- [x] Gate D = r1 seed unchanged; delegated-review provenance accurate
+- [x] Term-emergence confounding explicit
+- [x] No invented unknown threshold
+- [x] Unknown ≠ non-target structured country
+- [x] No country inference
+- [x] Deferred sensors not re-entered
+- [x] M7/M8 not implemented here
+- [x] TBD-008 Human ratified
+- [x] RF acceptance included in Human bundle
 
-M6 METHODOLOGY FREEZE STATUS: READY FOR HUMAN / CODEX REVIEW (TBD-008 PENDING HUMAN)
+M6 METHODOLOGY FREEZE STATUS: FROZEN — HUMAN APPROVED
