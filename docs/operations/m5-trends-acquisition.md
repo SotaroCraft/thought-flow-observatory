@@ -22,11 +22,14 @@ Code: `thought_flow.smoke.trends.acquisition_contract`
 
 Both must converge on the same CSV validation/import boundary (`csv_import.py`).
 
-### SoT conflict
+### SoT / Erratum-002
 
-Frozen [`m5-smoke-spec.md`](../decisions/m5-smoke-spec.md) prohibits undocumented Trends UI/network endpoints and unofficial clients. Transport B uses internal Explore/widget endpoints and therefore **conflicts**. Silent implementation is forbidden.
+Frozen smoke-spec **Erratum-002** conditionally permits Transport B. Live requests still require **both**:
 
-Proposal (not approved): [`m5-trends-transport-exception-proposal.md`](../decisions/m5-trends-transport-exception-proposal.md)
+1. Erratum-002 Accepted on `main`, and
+2. Dated Human-approved terms / automated access / storage / publication evidence.
+
+Either absent → `SMOKE-BLOCKED`; no live Explore/widget call. Live HTTP client remains unimplemented in this revision.
 
 ## Official alpha route
 

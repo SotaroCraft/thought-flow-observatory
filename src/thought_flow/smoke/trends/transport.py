@@ -1,7 +1,7 @@
 """Trends transport layer — acquisition only; converges on CSV import boundary.
 
-Transport B (Explore/widget) live calls remain DISABLED until the Decision
-`docs/decisions/m5-trends-transport-exception-proposal.md` is Accepted.
+Transport B live calls remain DISABLED until Erratum-002 is Accepted on main
+AND dated Human terms/automated-access/storage/publication evidence exists.
 """
 
 from __future__ import annotations
@@ -12,9 +12,15 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from thought_flow.smoke.trends.acquisition_contract import TrendsAcquisitionContract
-
-# Soft gate: must remain False until SoT exception is Accepted on main.
-EXPLORE_WIDGET_LIVE_AUTHORIZED = False
+from thought_flow.smoke.trends.live_gates import (
+    HumanTermsEvidence,
+    evaluate_transport_b_live_gates,
+)
+from thought_flow.smoke.trends.provenance import (
+    EXPLORE_WIDGET_CSV_PROVENANCE,
+    HUMAN_OFFICIAL_CSV_PROVENANCE,
+    TransportProvenance,
+)
 
 GOOGLE_JSON_ANTI_XSSI_PREFIX = ")]}'"
 
@@ -33,10 +39,12 @@ class TransportCsvResult:
     transport_id: str
     csv_bytes: bytes
     public_meta: dict[str, Any]
+    provenance: TransportProvenance
 
 
 class TrendsCsvTransport(Protocol):
     transport_id: str
+    provenance: TransportProvenance
 
     def acquire_csv(self, contract: TrendsAcquisitionContract) -> TransportCsvResult: ...
 
@@ -100,7 +108,8 @@ class HumanOfficialCsvTransport:
     """Transport A — Human already downloaded official UI CSV."""
 
     csv_path: Path
-    transport_id: str = "human_official_csv"
+    transport_id: str = HUMAN_OFFICIAL_CSV_PROVENANCE.transport_id
+    provenance: TransportProvenance = HUMAN_OFFICIAL_CSV_PROVENANCE
 
     def acquire_csv(self, contract: TrendsAcquisitionContract) -> TransportCsvResult:
         if not self.csv_path.is_file():
@@ -117,33 +126,58 @@ class HumanOfficialCsvTransport:
                 "byte_length": len(data),
                 "live_network": False,
             },
+            provenance=self.provenance,
         )
 
 
 @dataclass
 class ExploreWidgetCsvTransport:
-    """Transport B — Explore/widget CSV (LIVE DISABLED until SoT exception Accepted)."""
+    """Transport B — Explore/widget CSV (live HTTP not implemented; dual-gated)."""
 
     host: str = "https://trends.google.co.jp"
     hl: str = "ja"
     tz: int = -540
-    transport_id: str = "explore_widget_csv"
+    transport_id: str = EXPLORE_WIDGET_CSV_PROVENANCE.transport_id
+    provenance: TransportProvenance = EXPLORE_WIDGET_CSV_PROVENANCE
+    # Injected for tests; production uses evaluate_transport_b_live_gates defaults.
+    erratum_002_accepted_on_main: bool = False
+    terms_evidence: HumanTermsEvidence | None = None
+    # Fixture-only CSV bytes for non-live end-to-end tests (never a live response).
+    fixture_csv_bytes: bytes | None = None
 
     def acquire_csv(self, contract: TrendsAcquisitionContract) -> TransportCsvResult:
-        if not EXPLORE_WIDGET_LIVE_AUTHORIZED:
+        gate = evaluate_transport_b_live_gates(
+            erratum_002_accepted_on_main=self.erratum_002_accepted_on_main,
+            terms_evidence=self.terms_evidence,
+        )
+        if not gate.live_authorized:
             raise TrendsTransportError(
-                "transport_b_not_authorized",
-                "Explore/widget live acquisition is disabled until "
-                "docs/decisions/m5-trends-transport-exception-proposal.md is Accepted. "
-                "Use Transport A (Human official CSV) or obtain Human/Codex approval.",
+                "transport_b_smoke_blocked",
+                gate.reason,
             )
-        # Live path intentionally not implemented here: would violate frozen SoT
-        # until the exception Decision is Accepted. Keep a hard stop.
+        # Even when both gates are true, this revision does not ship a live HTTP client.
+        if self.fixture_csv_bytes is not None:
+            return TransportCsvResult(
+                contract=contract,
+                transport_id=self.transport_id,
+                csv_bytes=self.fixture_csv_bytes,
+                public_meta={
+                    "live_network": False,
+                    "fixture_only": True,
+                    "byte_length": len(self.fixture_csv_bytes),
+                },
+                provenance=self.provenance,
+            )
         raise TrendsTransportError(
-            "transport_b_live_not_enabled",
-            "Live Explore/widget client is not enabled in this revision.",
+            "transport_b_live_http_unimplemented",
+            "Live Explore/widget HTTP client is not implemented in this revision; "
+            "gates may be satisfied later but no live request is issued here.",
         )
 
     def build_explore_body(self, contract: TrendsAcquisitionContract) -> dict[str, Any]:
         """Public-safe body builder for tests — values from TFO contract only."""
         return contract.explore_comparison_payload()
+
+
+# Back-compat name: always False as a hard signal that live is not on by default.
+EXPLORE_WIDGET_LIVE_AUTHORIZED = False

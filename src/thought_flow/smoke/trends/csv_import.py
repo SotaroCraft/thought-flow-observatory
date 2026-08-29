@@ -24,6 +24,10 @@ from thought_flow.smoke.trends.probes import (
     paired_probes,
     probe_for,
 )
+from thought_flow.smoke.trends.provenance import (
+    HUMAN_OFFICIAL_CSV_PROVENANCE,
+    TransportProvenance,
+)
 
 _SECRET_KEYS = frozenset(
     {
@@ -256,16 +260,17 @@ def suggested_filename(country: str, observation_index: int) -> str:
     )
 
 
-def import_human_csv(
+def import_trends_csv(
     *,
     csv_path: Path,
     country: str,
     data_root: Path,
     code_revision: str,
     observation_index: int,
-    human_export_meta: dict[str, Any] | None = None,
+    provenance: TransportProvenance,
+    extra_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Validate + import one Human-exported official CSV into an append-only run."""
+    """Validate + import Trends CSV bytes into an append-only run with transport provenance."""
     if country not in TRENDS_COUNTRIES:
         raise ValueError(f"Unsupported country: {country!r}")
     if not csv_path.is_file():
@@ -290,10 +295,8 @@ def import_human_csv(
     sidecar = redact_secrets(
         {
             "schema_version": "m5-trends-csv-sidecar/v1",
-            "source": "google_trends_ui_csv",
-            "acquisition_mode": "human_official_csv_download",
+            **provenance.to_sidecar_fields(),
             "ui_automation": False,
-            "undocumented_endpoint_used": False,
             "country": country,
             "period": TRENDS_FULL.to_manifest(),
             "observation_index": observation_index,
@@ -312,7 +315,7 @@ def import_human_csv(
             "missing_week_count": parsed.missing_week_count,
             "warnings": parsed.warnings,
             "zero_semantics": ZERO_SEMANTICS_TRENDS,
-            "human_export_meta": human_export_meta or {},
+            "extra_meta": extra_meta or {},
             "observed_at": utc_now(),
             "code_revision": code_revision,
             "run_id": run_id,
@@ -390,12 +393,16 @@ def import_human_csv(
             "run_id": run_id,
             "run_type": "m5_smoke",
             "source": "google_trends",
-            "phase": "trends_ui_csv_import",
+            "phase": "trends_csv_import",
             "status": "succeeded",
             "started_at": utc_now(),
             "ended_at": utc_now(),
             "code_revision": code_revision,
-            "execution_mode": "human_csv_import",
+            "execution_mode": provenance.acquisition_mode,
+            "transport_id": provenance.transport_id,
+            "acquisition_mode": provenance.acquisition_mode,
+            "undocumented_endpoint_used": provenance.undocumented_endpoint_used,
+            "provenance_description": provenance.description,
             "country": country,
             "observation_index": observation_index,
             "period": TRENDS_FULL.to_manifest(),
@@ -412,3 +419,25 @@ def import_human_csv(
     )
     write_json(run_dir / "manifest.json", manifest)
     return manifest
+
+
+def import_human_csv(
+    *,
+    csv_path: Path,
+    country: str,
+    data_root: Path,
+    code_revision: str,
+    observation_index: int,
+    human_export_meta: dict[str, Any] | None = None,
+    provenance: TransportProvenance | None = None,
+) -> dict[str, Any]:
+    """Backward-compatible wrapper; defaults to Human official UI CSV provenance."""
+    return import_trends_csv(
+        csv_path=csv_path,
+        country=country,
+        data_root=data_root,
+        code_revision=code_revision,
+        observation_index=observation_index,
+        provenance=provenance or HUMAN_OFFICIAL_CSV_PROVENANCE,
+        extra_meta=human_export_meta,
+    )

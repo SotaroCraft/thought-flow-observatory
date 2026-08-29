@@ -10,7 +10,7 @@ from thought_flow.smoke.trends.acquisition_contract import (
     assert_contract_matches_tfo_sot,
     build_acquisition_contract,
 )
-from thought_flow.smoke.trends.csv_import import import_human_csv
+from thought_flow.smoke.trends.csv_import import import_trends_csv
 from thought_flow.smoke.trends.transport import (
     ExploreWidgetCsvTransport,
     HumanOfficialCsvTransport,
@@ -29,15 +29,17 @@ def acquire_and_import(
     code_revision: str,
     staging_dir: Path | None = None,
 ) -> dict[str, Any]:
-    """Run Layer B then PR #7 CSV validate/import. Failed GEO must not overwrite priors."""
+    """Run Layer B then CSV validate/import. Failed GEO must not overwrite priors."""
     contract = build_acquisition_contract(geo=geo, observation_index=observation_index)
     assert_contract_matches_tfo_sot(contract)
     try:
         result = transport.acquire_csv(contract)
     except TrendsTransportError as exc:
+        smoke_state = "SMOKE-BLOCKED" if "smoke_blocked" in exc.code else "fetch_failure"
         return {
-            "status": "fetch_failure",
+            "status": "fetch_failure" if smoke_state != "SMOKE-BLOCKED" else "SMOKE-BLOCKED",
             "quality_state": "fetch_failure",
+            "smoke_state": smoke_state,
             "transport_error_code": exc.code,
             "failure_message": str(exc)[:500],
             "geo": contract.geo,
@@ -72,14 +74,14 @@ def _import_exact_bytes(
         raise RuntimeError(f"refuse overwrite of staged CSV: {staged.name}")
     staged.write_bytes(result.csv_bytes)  # exact bytes, no numeric transform
 
-    manifest = import_human_csv(
+    manifest = import_trends_csv(
         csv_path=staged,
         country=result.contract.geo,
         data_root=data_root,
         code_revision=code_revision,
         observation_index=result.contract.observation_index,
-        human_export_meta={
-            "transport_id": result.transport_id,
+        provenance=result.provenance,
+        extra_meta={
             "obs_id": result.contract.obs_id,
             "transport_public_meta": result.public_meta,
             "byte_preservation": "exact_source_csv_bytes",

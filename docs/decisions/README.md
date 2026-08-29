@@ -30,9 +30,9 @@ M1 does not freeze sensor sources, dictionaries, country aggregation, or metrics
 | Document | Topic | Status |
 |---|---|---|
 | [`m5-sensor-preflight.md`](m5-sensor-preflight.md) | Sensor preflight (design) | External Review PASS |
-| [`m5-smoke-spec.md`](m5-smoke-spec.md) | Bounded smoke specification (+ Erratum-001) | FROZEN |
+| [`m5-smoke-spec.md`](m5-smoke-spec.md) | Bounded smoke specification (+ Erratum-001, + Erratum-002) | FROZEN |
 | [`m5-sensor-decision.md`](m5-sensor-decision.md) | OpenAlex Phase 1 source decision record | OpenAlex Phase 1 recorded; **overall M5 source selection remains Open (TBD-001)** |
-| [`m5-trends-transport-exception-proposal.md`](m5-trends-transport-exception-proposal.md) | Optional Explore/widget CSV transport exception | **PROPOSAL ONLY — not approved**; frozen smoke spec unchanged |
+| [`m5-trends-transport-exception-proposal.md`](m5-trends-transport-exception-proposal.md) | Explore/widget Transport B exception (pre-Erratum draft) | Superseded in substance by **Erratum-002** in smoke-spec; dual live gate still required before live use |
 
 Trends acquisition ops (Transport A Human CSV; Transport B gated): [`docs/operations/m5-trends-acquisition.md`](../operations/m5-trends-acquisition.md). No Trends `SMOKE-PASS` / RF final / M6 freeze in that note.
 

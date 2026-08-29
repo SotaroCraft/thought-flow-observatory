@@ -116,7 +116,7 @@ def test_transport_b_live_disabled() -> None:
     c = build_acquisition_contract(geo="US", observation_index=1)
     with pytest.raises(TrendsTransportError) as ei:
         ExploreWidgetCsvTransport().acquire_csv(c)
-    assert ei.value.code == "transport_b_not_authorized"
+    assert ei.value.code == "transport_b_smoke_blocked"
 
 
 def test_failed_geo_does_not_overwrite_prior_success(tmp_path: Path) -> None:
@@ -144,7 +144,7 @@ def test_failed_geo_does_not_overwrite_prior_success(tmp_path: Path) -> None:
         code_revision="test",
         staging_dir=tmp_path / "stage2",
     )
-    assert fail["status"] == "fetch_failure"
+    assert fail["status"] in {"fetch_failure", "SMOKE-BLOCKED"}
     assert fail["zero_coerced"] is False
     assert (success_root / "manifest.json").read_text(encoding="utf-8") == manifest_before
 
