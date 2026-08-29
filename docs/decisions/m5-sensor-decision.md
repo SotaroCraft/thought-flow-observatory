@@ -55,9 +55,9 @@ Aggregate counts in the table above are grounded in the Human-held local run ide
 1. **Live Raw is not in the public repository.** Reacquisition or a Human-held local evidence path is required to inspect privacy-reduced envelopes, per-cell coverage rows, or HTTP attempt logs from the live run.
 2. Smoke retention / page / inspect ceilings intentionally produce `partial` observations where an unobserved remainder exists; smoke counts are **not** a full-population extract.
 3. `PROVISIONAL-M5-SMOKE` is smoke-only and is **not** Gate D v1.
-4. Human stratified provisional match review samples (§4 of the smoke spec) are **UNKNOWN** in this public record (not packaged as a normative public artifact here).
-5. Public numeric rates for abstract coverage, `unknown` country share, and multi-country share from the live run are **UNKNOWN** in this public record (aggregates not published without live Raw).
-6. This record does **not** decide OpenAlex production adoption, RF final state, or any M6 Gate.
+4. Human stratified provisional match review: **completed under Human-delegated AI-assisted mode** (TFO-M5-017). Public-safe outcome: [`m5-openalex-vocabulary-review.md`](m5-openalex-vocabulary-review.md). Full display snippets remain in local gitignored packet. **Not** manual row-by-row Human review. Vocabulary unchanged; DISAGREE/UNSURE are Gate D input.
+5. Public-safe **country / unknown / multi-country** measured aggregates for RF §12.1 #5 are recorded in [`m5-narrow-closeout.md`](m5-narrow-closeout.md) §1.2 (TFO-M5-018). Abstract-coverage rates remain unpublished here. Aggregates use smoke retained-work denominators, not Canonical / Gate E thresholds.
+6. This record does **not** decide OpenAlex production adoption alone; RF Cursor recommendation and PoC scope are in [`m5-narrow-closeout.md`](m5-narrow-closeout.md). M6 Gates remain unfrozen.
 
 ### 2.1 Live evidence provenance
 
@@ -148,7 +148,7 @@ Normative patch recorded in [`m5-smoke-spec.md`](m5-smoke-spec.md) (Erratum-001)
 | Reason codes | `mechanical_smoke_complete`; `fetch_failure_zero`; `privacy_reduced_persistence`; `no_country_inference`; `provisional_vocabulary_only`; `live_raw_not_in_public_repo`; `bounded_ceiling_partial_cells`; `erratum001_applied` |
 | Reviewer / approval state | Cursor recommendation recorded. Human / Codex own source adoption and RF final (§1 / §12 of smoke spec). |
 | Why not `SMOKE-NO-GO` | Mandatory cells completed with `fetch_failure = 0`; documented schema / start boundary / privacy and no-inference boundaries held under review. Sparse / valid zero alone is not no-go (§5.4). |
-| Why not bare `SMOKE-PASS` | Bounded ceiling / `partial` observations constrain completeness claims; the public repository alone cannot fully re-inspect live coverage evidence; Human provisional vocabulary review sample is **UNKNOWN** / not packaged. These are TFO evidence-packaging and smoke-mechanics limitations—not a claim that OpenAlex metadata licensing prohibits retention. Limitations above must remain explicit (§1 `SMOKE-PASS-WITH-LIMITATIONS`). |
+| Why not bare `SMOKE-PASS` | Bounded ceiling / `partial` observations constrain completeness claims; the public repository alone cannot fully re-inspect live Raw (aggregates / hashes only). §4 review is **completed** (75 items; AGREE 62 / DISAGREE 11 / UNSURE 2) under **Human-delegated AI-assisted** mode — **not** manual Human row-by-row review; vocabulary unchanged; DISAGREE/UNSURE remain limitations and Gate D input (not perfect classifier accuracy). See [`m5-openalex-vocabulary-review.md`](m5-openalex-vocabulary-review.md). These remain TFO evidence-packaging and smoke-mechanics limitations—not a claim that OpenAlex metadata licensing prohibits retention. Limitations must stay explicit (§1 `SMOKE-PASS-WITH-LIMITATIONS`). |
 | Why not `SMOKE-BLOCKED` | Authenticated live smoke ran; entitlement was not absent for the completed Phase 1 path. |
 
 OpenAlex remains eligible for M6 **consideration** only; Gate A–E are not frozen by this result.
@@ -159,13 +159,14 @@ OpenAlex remains eligible for M6 **consideration** only; Gate A–E are not froz
 
 | Field | Value |
 |---|---|
-| **RF PASSED** | **NO** |
-| Final RF state (`PASS` / `BLOCKED` / `INCONCLUSIVE`) | **UNDETERMINED** — not recorded as Human / Codex final in repository SoT |
-| Separation | OpenAlex Phase 1 provides **RF candidate evidence**. That is distinct from an RF final decision (§12). |
+| **RF PASSED** | **Cursor-recommended YES WITH LIMITATIONS** — Human / Codex final still required (§12 / §14.8) |
+| Final RF state (`PASS` / `BLOCKED` / `INCONCLUSIVE`) | **Cursor recommendation: `RF PASS` WITH LIMITATIONS** via OpenAlex-alone route — see [`m5-narrow-closeout.md`](m5-narrow-closeout.md). Not silently converted from documentation alone. |
+| §4 / RF #6 review | Completed under **Human-delegated AI-assisted** mode (TFO-M5-017); **not** manual row-by-row Human review — see [`m5-openalex-vocabulary-review.md`](m5-openalex-vocabulary-review.md) |
+| Separation | OpenAlex Phase 1 + delegated §4 packaging provide RF evidence. Human / Codex own the final RF label. |
 | Documentation alone | Insufficient for RF PASS (§12). |
 | M7 | Not authorized by this record. |
 
-Cursor notes (non-binding): Phase 1 produced terminal outcomes for the OpenAlex sentinel matrix under frozen ceilings, with structured country evidence and provisional theme matching. Remaining RF closure items include Human review of RF evidence (§14.8), any required provisional vocabulary review samples, and packaging of local coverage evidence that is not public. Those gaps keep final RF **UNDETERMINED**, not silently `PASS`.
+Cursor notes (non-binding): Phase 1 terminal sentinel outcomes remain. The prior RF#6 gap (absent §4 review) is addressed by the delegated 75-row adjudication (AGREE 62 / DISAGREE 11 / UNSURE 2) without vocabulary mutation. Remaining acceptance risk is whether Human / Codex treat delegated review as sufficient for smoke-spec “Human reviews” wording.
 
 ---
 
@@ -178,10 +179,10 @@ M5 supplies evidence; it does **not** decide any Gate ([`m5-smoke-spec.md`](m5-s
 | **A** — unit / population / denominator | Distinct Work IDs under privacy-reduced persistence; country × period denominator requests (12) with source-reported totals; theme cells with inspected / retained / matched counts; intentional `partial` under ceilings with unobserved remainder | **Not frozen** |
 | **B** — proxy | Observed object = indexed scholarly **Works** via OpenAlex. Proxy is **not** authors, citations, social diffusion, or a social layer. Limitations: affiliation / abstract coverage unevenness (rates **UNKNOWN** publicly here); smoke sample ≠ full extract | **Not frozen** |
 | **C** — time | Fields retained in allowlist path: `publication_date` / `publication_year`, `created_date`, `updated_date`, plus local `observed_at` / `ingested_at`. Semantics remain candidate evidence for Gate C, not Canonical time freeze | **Not frozen** |
-| **D** — vocabulary | Multilingual `PROVISIONAL-M5-SMOKE/2026-08-23-r1` applied locally to title / reconstructed abstract; OpenAlex topics not primary. **Not Gate D v1**; replaceable by M6 | **Not frozen** |
-| **E** — country | Structured authorship countries / institution `country_code` path; multi-country retention; missing / `unknown` preserved; **no** name / language / LLM inference | **Not frozen** |
+| **D** — vocabulary | Multilingual `PROVISIONAL-M5-SMOKE/2026-08-23-r1` applied locally to title / reconstructed abstract; OpenAlex topics not primary. Delegated §4 review recorded (DISAGREE/UNSURE = narrowness / snippet limits). **Not Gate D v1**; replaceable by M6 | **Not frozen** |
+| **E** — country | Structured authorship countries / institution `country_code` path; multi-country retention; missing / `unknown` preserved; **no** name / language / LLM inference; public-safe smoke rates in narrow close-out §1.2 | **Not frozen** |
 
-Unresolved for M6 (remain open): public packaging of live coverage tables; Human provisional review sample outcomes; acceptability thresholds for abstract / `unknown` / imbalance (M5 must not invent them).
+Unresolved for M6 (remain open): fuller public packaging of live coverage tables if needed; Gate D acceptance of provisional terms given DISAGREE/UNSURE; acceptability thresholds for abstract / `unknown` / imbalance (M5 must not invent them; §1.2 rates are evidence only).
 
 ---
 
@@ -217,10 +218,10 @@ Do **not** store API key values, account IDs, or live Raw in the repository or t
 
 - [x] Recommended OpenAlex M5 result uses frozen vocabulary only.
 - [x] Production `GO` not asserted.
-- [x] **RF PASSED: NO**; final RF state left **UNDETERMINED**.
+- [x] **RF**: Cursor recommends `RF PASS` WITH LIMITATIONS (OpenAlex-alone); Human / Codex final still required. See narrow close-out.
 - [x] **M6 Gate A–E FROZEN: NO**.
-- [x] `PROVISIONAL-M5-SMOKE` not promoted to Gate D v1.
+- [x] `PROVISIONAL-M5-SMOKE` not promoted to Gate D v1; vocabulary not mutated by §4 outcomes.
 - [x] Live Raw / secrets / account values absent from this record.
-- [x] TBD-001 (overall sensor source selection) remains Open at program level.
+- [x] TBD-001 (overall sensor source selection) remains Open at program level; current PoC scope recorded in narrow close-out.
 
-M5 OPENALEX DECISION RECORD STATUS: READY FOR HUMAN / CODEX REVIEW
+M5 OPENALEX DECISION RECORD STATUS: SUPERSEDED IN RF BOUNDARY BY NARROW CLOSE-OUT — SEE `m5-narrow-closeout.md`
