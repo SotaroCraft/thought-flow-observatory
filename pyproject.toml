@@ -16,6 +16,9 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
 ]
+sharepoint = [
+    "msal>=1.28.0",
+]
 
 [project.scripts]
 thought-flow = "thought_flow.cli:main"

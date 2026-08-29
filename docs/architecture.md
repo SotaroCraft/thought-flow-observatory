@@ -47,7 +47,16 @@ These paths cooperate but are **not** one pipeline. Local analysis must continue
 
 `integrations/` must not sit on the required import path for Raw → Canonical → Analysis. M1 smoke does not call SharePoint, BigQuery, or Azure.
 
+## M4 Graph / SPO boundary (optional)
+
+- Package: `thought_flow.integrations.sharepoint` — delegated interactive browser auth (PKCE) + bounded Graph read smoke.
+- CLI: `thought-flow m4-graph-spo-smoke` (preflight) and `--live` (Human-operated auth + one metadata read).
+- Permission target: delegated `Sites.Read.All` (read-only proof). No client secret for the public-client path.
+- Auth note: Device Code Flow blocked by Security Defaults (AADSTS530035); interactive `http://localhost` used instead — see `docs/decisions/m4-auth-interactive-browser.md`.
+- Failure / absence of Graph must not affect immutable Raw or local smoke.
+- Ops: `docs/operations/m4-graph-spo-smoke.md`. Evidence: `docs/m365-validation.md`.
+
 ## Related
 
-- Requirements: `docs/requirements.md` §§5.1, 16.1, 17
-- Plan: `implementation-plan.md` §§3, 6 (M1), 7
+- Requirements: `docs/requirements.md` §§5.1, 16.1, 17, FR-INT-002, AC-M365-001〜003
+- Plan: `implementation-plan.md` §§3, 6 (M1, M3–M4), 7

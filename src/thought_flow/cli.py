@@ -1,4 +1,4 @@
-"""Local CLI entry for M1 smoke and M5 OpenAlex bounded smoke."""
+"""Local CLI entry for M1 smoke, M4 Graph SPO smoke, and M5 OpenAlex smoke."""
 
 from __future__ import annotations
 
@@ -141,6 +141,27 @@ def run_smoke(*, sample_path: Path | None = None) -> int:
         return 1
 
 
+def run_m4_graph_spo_smoke(*, live: bool = False) -> int:
+    """Run M4 Graph → SPO bounded read smoke. Network/auth only when --live."""
+    from thought_flow.integrations.sharepoint.smoke import run_graph_spo_smoke
+
+    settings = load_settings()
+    evidence_dir = settings.data_root / "m4-smoke" if live else None
+    if evidence_dir is not None:
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+
+    summary = run_graph_spo_smoke(live=live, evidence_dir=evidence_dir)
+    print(json.dumps(summary, indent=2, ensure_ascii=False))
+    status = summary.get("status")
+    if status in {"succeeded", "ready", "disabled", "not_configured"} and not live:
+        return 0
+    if status == "succeeded":
+        return 0
+    if status in {"disabled", "not_configured"} and live:
+        return 2
+    return 1
+
+
 def run_m5_openalex_smoke(*, live: bool = False, diagnostic_cell: bool = False) -> int:
     """Run OpenAlex M5 bounded smoke. Live network only when --live is set."""
     from thought_flow.smoke.http_client import RequestBudget, SmokeHttpClient
@@ -208,7 +229,7 @@ def run_m5_openalex_smoke(*, live: bool = False, diagnostic_cell: bool = False) 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="thought-flow",
-        description="Thought Flow Observatory local entry (M1 smoke + M5 OpenAlex).",
+        description="Thought Flow Observatory local entry (M1 / M4 / M5 smokes).",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -219,6 +240,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Path to a public-safe JSON sample (default: data/samples/m1_synthetic_raw.json).",
+    )
+
+    m4 = sub.add_parser(
+        "m4-graph-spo-smoke",
+        help="Run bounded Graph → SPO read smoke (network/auth only with --live).",
+    )
+    m4.add_argument(
+        "--live",
+        action="store_true",
+        help="Perform delegated interactive browser auth and one Graph read against configured SPO site.",
     )
 
     m5 = sub.add_parser(
@@ -246,6 +277,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "smoke":
         return run_smoke(sample_path=args.sample)
+    if args.command == "m4-graph-spo-smoke":
+        return run_m4_graph_spo_smoke(live=args.live)
     if args.command == "m5-smoke-openalex":
         if getattr(args, "diagnostic_cell", False) and not args.live:
             parser.error("--diagnostic-cell requires --live")

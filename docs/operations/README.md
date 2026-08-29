@@ -16,6 +16,19 @@ Artifacts (default data root `workspace-data/`):
 - `manifests/<run_identity>.json` — run evidence
 - `catalog.duckdb` — local DuckDB catalog file
 
+## M3 / M4 (SharePoint / Graph)
+
+- M3 Human reconfirm (existing Hub only): `docs/operations/m3-hub-reconfirm-checklist.md`
+- M4 Graph SPO smoke: `docs/operations/m4-graph-spo-smoke.md`
+
+```bash
+uv sync --extra sharepoint
+uv run thought-flow m4-graph-spo-smoke
+uv run thought-flow m4-graph-spo-smoke --live
+```
+
+External credentials are never required for local M1 smoke or unit tests.
+
 ## Later runbooks
 
-SPO setup, weekly differential runs, and Graph smoke procedures will be added in M2–M10. Until then, do not assume automation or cloud credentials are required for local core work.
+Weekly differential runs and further cloud procedures will be added in later milestones.
