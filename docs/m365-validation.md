@@ -4,20 +4,33 @@
 
 M3 and M4 have separate entries below. Do **not** treat Human historical recollection as automatic PASS without reconfirmation or live smoke evidence.
 
+- **M3:** Human reconfirm **complete** 2026-08-29 — Adopt (AC-HUB-001〜005; TBD-002〜004 decided). See §M3.
+- **M4:** Graph connectivity **Adopt** (AC-M365-001). See §M4.
+
 ## M3 — SharePoint Research Hub / Copilot
 
 | Field | Content |
 |---|---|
-| Date | 2026-08-29 (checklist issued; live reconfirm pending Human) |
+| Date | 2026-08-29 |
 | Feature | SPO Research Hub + Copilot Capture / Use / Promote |
-| What was tried | Repository rediscovery only. Existing Hub may already exist in tenant; not recreated from Git. |
-| What worked | Not yet reconfirmed via Human checklist. (M4 live smoke observed a library preferred display name `Sources` — useful lead only; does **not** satisfy M3 Exit criteria alone.) |
-| What did not work | In-repo M3 PASS not recorded; checklist answers still empty. |
-| Required permissions / prerequisites | Human M365 access to the existing Research Hub site; Copilot entitlement as licensed. |
-| Constraints | Capturing a Source must not require Card creation. Do not rebuild Hub solely for evidence. |
-| Usefulness to Research Hub | Foundational human surface (requirements §§13, FR-HUB). |
-| Adopt / defer decision | **Pending** Human checklist in `docs/operations/m3-hub-reconfirm-checklist.md`. **Not complete.** |
-| Evidence location (public-safe) | Checklist + this log after Human answers (no tenant URLs / IDs). |
+| What was tried | Human live reconfirm of **existing** Research Hub (no rebuild). Verified six Hub surfaces; confirmed seed Sources Kashima (2019), Michel (2011), Shiller (2017); Capture via public URL shortcut and via public research PDF in Sources; Copilot search / read / compare / summarize / original-source check; selective Promote of one Card (Kashima); Card cross-use; 2-week-pause Resume without backlog cleanup. |
+| What worked | **AC-HUB-001〜005 PASS** (AC-HUB-003 with documented limitation). **AC-HUB-001:** PDF/file Capture into Sources completed with **one direct drag-and-drop**; no subsequent mandatory save / confirm / tag / classification / summary / Research Card. Capture without mandatory structure on both paths. PDF-in-Sources path: Copilot read and summarized file body directly. Seeds present and reusable. One Source Used; one valuable Source Promoted (Title mandatory only; Card links to Source). All required surfaces present. Resume without cleanup succeeded. |
+| What did not work / limitations | URL shortcut Capture: ~3 UI steps, no mandatory structure, discoverable, but body not inside SPO — Copilot needed external access to read; URL path is **not** the AC-HUB-001 one-operation evidence. Research Card discoverability weaker than Source retrieval: Copilot found the Source readily; Card cross-use worked when the Research Cards list was **explicitly provided** — classification **CONSTRAINED**, not FAIL. Copilot answer quality not overclaimed. |
+| Required permissions / prerequisites | Human M365 access to existing Research Hub; Copilot entitlement as licensed. |
+| Constraints | No Hub rebuild; no bulk Cards; no Graph expansion; no Power Automate; no ingestion Agent in this milestone. Prefer PDF/file in Sources when rights allow; use URL when rights/storage prefer external canonical. Do not commit redistribution-unclear PDFs to GitHub. |
+| Usefulness to Research Hub | Proves manual Capture → Use → selective Promote primitives and Hub surfaces for ongoing research (requirements §§13, FR-HUB, FR-INT-001). |
+| Adopt / defer decision | **Adopt** Research Hub corpus workflow for M3 Exit. TBD-002〜004 **decided** from live use — see `docs/decisions/m3-hub-corpus-workflow.md`. Future Agent ingestion/Card automation recorded as opportunity only — **not** implemented. |
+| Evidence location (public-safe) | `docs/operations/m3-hub-reconfirm-checklist.md`; this log; `docs/decisions/m3-hub-corpus-workflow.md`. No tenant URLs / site or list IDs / emails / tenant-chrome screenshots. |
+
+### M3 AC summary (public-safe)
+
+| AC | Verdict | Limitation |
+|---|---|---|
+| AC-HUB-001 | PASS | One-operation evidence: **one direct drag-and-drop** of PDF/file into Sources; no mandatory follow-up. Limitation: URL shortcut path remained ~3 UI steps and is **not** the one-operation evidence. |
+| AC-HUB-002 | PASS | Seeds present; Use without Card; ≥1 Used; selective Promote with Source link-back. |
+| AC-HUB-003 | PASS with limitation | Search/read/compare/summarize/original-source OK. Card cross-use **CONSTRAINED** (needs explicit Card surface). |
+| AC-HUB-004 | PASS | Resume without backlog cleanup. |
+| AC-HUB-005 | PASS | Home, Sources, Research Cards, Methodology, Current Findings, M365 Validation Log present. |
 
 ## M4 — Graph / Entra minimum SPO connectivity
 
@@ -57,7 +70,7 @@ M3 and M4 have separate entries below. Do **not** treat Human historical recolle
 
 ## Related
 
-- Requirements: `docs/requirements.md` §§14.1, 19.2, FR-INT-002, AC-M365-001〜003
+- Requirements: `docs/requirements.md` §§13, 14.1, 19.2, FR-HUB-001〜008, FR-INT-001〜002, AC-HUB-001〜005, AC-M365-001〜003
 - Plan: `implementation-plan.md` §§5.1 (S1–S3), 6 (M3–M4), 10
 - Ops: `docs/operations/m3-hub-reconfirm-checklist.md`, `docs/operations/m4-graph-spo-smoke.md`
-- Decision: `docs/decisions/m4-auth-interactive-browser.md`
+- Decisions: `docs/decisions/m3-hub-corpus-workflow.md`, `docs/decisions/m4-auth-interactive-browser.md`

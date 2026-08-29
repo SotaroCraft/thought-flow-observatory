@@ -7,6 +7,9 @@ M1 does not freeze sensor sources, dictionaries, country aggregation, or metrics
 | ID | Topic | Status |
 |---|---|---|
 | TBD-001 | Sensor source selection | Open (M5) |
+| TBD-002 | Research Card MVP fields | Decided (M3) — see [`m3-hub-corpus-workflow.md`](m3-hub-corpus-workflow.md) |
+| TBD-003 | Sources file vs link boundary | Decided (M3) — see [`m3-hub-corpus-workflow.md`](m3-hub-corpus-workflow.md) |
+| TBD-004 | Captured / Used / Promoted representation | Decided (M3) — see [`m3-hub-corpus-workflow.md`](m3-hub-corpus-workflow.md) |
 | TBD-007 | Theme dictionary v1 | Open (M6 Gate D) |
 | TBD-008 | Multi-country aggregation | Open (M6 Gate E) |
 | TBD-009 | MVP metrics / thresholds | Open (M6 / pre-analysis) |
@@ -18,6 +21,12 @@ M1 does not freeze sensor sources, dictionaries, country aggregation, or metrics
 | [`m5-sensor-preflight.md`](m5-sensor-preflight.md) | Sensor preflight (design) | External Review PASS |
 | [`m5-smoke-spec.md`](m5-smoke-spec.md) | Bounded smoke specification (+ Erratum-001) | FROZEN |
 | [`m5-sensor-decision.md`](m5-sensor-decision.md) | OpenAlex Phase 1 source decision record | OpenAlex Phase 1 recorded; **overall M5 source selection remains Open (TBD-001)** |
+
+## M3 records
+
+| Document | Topic | Status |
+|---|---|---|
+| [`m3-hub-corpus-workflow.md`](m3-hub-corpus-workflow.md) | TBD-002〜004 from Human Hub reconfirm; Capture/Use/Promote primitives; future Agent automation out of scope | Accepted |
 
 ## M4 records
 
