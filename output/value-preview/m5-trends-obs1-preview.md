@@ -73,10 +73,10 @@ Equal thirds of each 195-week series (exploratory summary, not Canonical periods
 | JP | generative_ai | 26.3 | 53.8 | 78.5 |
 | JP | ai_agent | 0.1 | 2.2 | 7.5 |
 | US | generative_ai | 7.3 | 10.2 | 30.9 |
-| US | ai_agent | 0.7 | 3.9 | 42.1 |
+| US | ai_agent | 0.7 | 3.8 | 42.1 |
 | KR | generative_ai | 13.8 | 40.0 | 51.2 |
 | KR | ai_agent | 0.0 | 3.4 | 24.1 |
-| CN | generative_ai | 2.1 | 2.7 | 8.2 |
+| CN | generative_ai | 2.1 | 2.6 | 8.2 |
 | CN | ai_agent | 0.0 | 0.4 | 27.0 |
 
 ## Visible timing / peaks (OBSERVED)

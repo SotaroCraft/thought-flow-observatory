@@ -40,7 +40,7 @@ For each GEO × theme:
 
 ### JP
 
-**OBSERVED (OpenAlex):** `generative_ai` matched 0 → 4 → 28 across START/MID/RECENT; `ai_agent` 1 → 0 → 6 (partial/zero mix).
+**OBSERVED (OpenAlex):** `generative_ai` matched 0 → 4 → 28 across START/MID/RECENT; `ai_agent` matched 1 → 0 → 6, with all three cells `partial`; the MID matched=0 is not a complete valid-zero observation.
 
 **OBSERVED (Trends):** `generative_ai` early/mid/late means 26 → 54 → 78; first ≥50 in Nov 2023; peak 100 in May 2026. `ai_agent` remains low on shared scale (late mean ~7.5, peak 12).
 
@@ -60,7 +60,7 @@ For each GEO × theme:
 
 ### KR
 
-**OBSERVED (OpenAlex):** `generative_ai` 0 → 3 → 10; `ai_agent` 0 → 0 → 2.
+**OBSERVED (OpenAlex):** `generative_ai` matched 0 → 3 → 10; `ai_agent` matched 0 → 0 → 2, with all three cells `partial`; START/MID matched=0 are not complete valid-zero observations.
 
 **OBSERVED (Trends):** `generative_ai` means 14 → 40 → 51; `ai_agent` sparse early (many zeros), late mean ~24, peak 51 (May 2026).
 
@@ -70,7 +70,7 @@ For each GEO × theme:
 
 ### CN
 
-**OBSERVED (OpenAlex):** `generative_ai` 0 → 21 → 65; `ai_agent` 1 → 0 → 18 (partial-heavy).
+**OBSERVED (OpenAlex):** `generative_ai` matched 0 → 21 → 65, with all three cells `partial`; the START matched=0 is not a complete valid-zero observation. `ai_agent` matched 1 → 0 → 18, with all three cells `partial`; the MID matched=0 is not a complete valid-zero observation.
 
 **OBSERVED (Trends):** `generative_ai` mostly zeros (158/195), peak only 39; `ai_agent` mostly zeros early, late rise, peak 100 (Jul 2026).
 
