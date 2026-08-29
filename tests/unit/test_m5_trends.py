@@ -96,6 +96,26 @@ def test_malformed_import_rejected() -> None:
         parse_official_trends_csv(text="not a csv", country="US")
 
 
+def test_jp_locale_official_ui_csv_shape() -> None:
+    """Official JP-locale UI exports use 週 header, geo-suffixed labels, and 1 未満."""
+    text = (
+        "カテゴリ: すべてのカテゴリ\n"
+        "\n"
+        "週,生成AI: (日本),AIエージェント: (日本)\n"
+        "2022-11-27,10,1 未満\n"
+        "2022-12-04,8,0\n"
+        "2023-01-01,6,2\n"
+    )
+    parsed = parse_official_trends_csv(text=text, country="JP")
+    assert parsed.row_count == 3
+    assert parsed.points_generative_ai[0].value == 10
+    assert parsed.points_ai_agent[0].value == 0
+    assert parsed.points_ai_agent[0].quality_state == "zero"
+    assert parsed.points_ai_agent[0].zero_semantics == ZERO_SEMANTICS_TRENDS
+    assert parsed.points_ai_agent[1].value == 0
+    assert parsed.points_generative_ai[2].value == 6
+
+
 def test_csv_import_append_only_and_no_ui_endpoint(tmp_path: Path) -> None:
     csv_path = tmp_path / "export.csv"
     csv_path.write_text(SAMPLE.read_text(encoding="utf-8"), encoding="utf-8")

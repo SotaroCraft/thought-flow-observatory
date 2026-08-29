@@ -106,12 +106,25 @@ def _parse_week_cell(raw: str) -> date | None:
 
 
 def _interest_section(text: str) -> str:
-    # Official multi-section CSV: find "Interest over time" block.
+    """Extract the Interest-over-time table from official Trends CSV variants.
+
+    Supports English multi-section exports and Japanese UI exports that start
+    with a category line then a `週,...` header (no English section title).
+    """
     lines = text.splitlines()
     start = None
     for i, line in enumerate(lines):
-        if line.strip().lower() == "interest over time":
+        lowered = line.strip().lower()
+        if lowered == "interest over time":
             start = i + 1
+            break
+        # JP/localized UI: first CSV header row containing week + two series.
+        if "," in line and (
+            line.startswith("週,")
+            or line.startswith("Week,")
+            or line.startswith("週，")
+        ):
+            start = i
             break
     if start is None:
         # Some exports are already a single table.
@@ -131,17 +144,18 @@ def _interest_section(text: str) -> str:
 
 def _classify_value(raw: str) -> TrendsSeriesPoint:
     cell = raw.strip()
-    if cell == "" or cell.upper() == "N/A" or cell == "<1":
-        # Trends may emit blank / <1; treat blank as missing, <1 as low interest zero-ish.
-        if cell == "<1":
-            return TrendsSeriesPoint(
-                week_start="",
-                value=0,
-                quality_state="zero",
-                zero_semantics=ZERO_SEMANTICS_TRENDS,
-            )
+    # Localized / English low-volume markers from official UI CSV.
+    low_markers = {"<1", "1 未満", "1未満", "< 1"}
+    if cell == "" or cell.upper() == "N/A":
         return TrendsSeriesPoint(
             week_start="", value=None, quality_state="missing", zero_semantics=None
+        )
+    if cell in low_markers:
+        return TrendsSeriesPoint(
+            week_start="",
+            value=0,
+            quality_state="zero",
+            zero_semantics=ZERO_SEMANTICS_TRENDS,
         )
     try:
         value = int(float(cell))
@@ -165,6 +179,17 @@ def _classify_value(raw: str) -> TrendsSeriesPoint:
     )
 
 
+def _series_label_base(label: str) -> str:
+    """Strip official UI geo suffix: 'term: (Country)' → 'term'."""
+    text = label.strip()
+    # Common UI pattern: "<probe>: (<localized country>)"
+    if ": (" in text:
+        text = text.split(": (", 1)[0].strip()
+    elif "：(" in text:  # fullwidth colon variants
+        text = text.split("：(", 1)[0].strip()
+    return text
+
+
 def parse_official_trends_csv(*, text: str, country: str) -> ParsedTrendsCsv:
     if country not in TRENDS_COUNTRIES:
         raise ValueError(f"Unsupported country: {country!r}")
@@ -185,9 +210,9 @@ def parse_official_trends_csv(*, text: str, country: str) -> ParsedTrendsCsv:
     # Column 0 is Week / Time; remaining are series labels.
     labels = header[1:]
     warnings: list[str] = []
-    # Match labels case-insensitively / whitespace-normalized.
+    # Match labels case-insensitively / whitespace-normalized; ignore UI geo suffix.
     def norm(s: str) -> str:
-        return re.sub(r"\s+", " ", s.strip().casefold())
+        return re.sub(r"\s+", " ", _series_label_base(s).strip().casefold())
 
     gen_idx = next((i for i, lab in enumerate(labels) if norm(lab) == norm(expected_gen)), None)
     agent_idx = next(
