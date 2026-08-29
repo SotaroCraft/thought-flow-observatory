@@ -2,10 +2,26 @@
 
 ## Status
 
-M3 and M4 have separate entries below. Do **not** treat Human historical recollection as automatic PASS without reconfirmation or live smoke evidence.
+M2, M3, and M4 have separate entries below. Do **not** treat Human historical recollection as automatic PASS without reconfirmation or live smoke evidence.
 
+- **M2:** External readiness **complete** 2026-08-29 — Trial usable through 2026-09-20; S1 functional evidence reused from M3; S3 closed by M4; BigQuery readiness and Azure NO-GO in `docs/cloud-comparison.md` / `docs/decisions/m2-external-readiness.md`. See §M2.
 - **M3:** Human reconfirm **complete** 2026-08-29 — Adopt (AC-HUB-001〜005; TBD-002〜004 decided). See §M3.
 - **M4:** Graph connectivity **Adopt** (AC-M365-001). See §M4.
+
+## M2 — Trial entitlement / external readiness (S1 index)
+
+| Field | Content |
+|---|---|
+| Date | 2026-08-29 |
+| Feature | M365 / Copilot Trial availability through PoC evaluation window |
+| What was tried | Human confirmed current M365 / Copilot environment remains usable through **2026-09-20**; confirmed no material Trial constraint beyond already documented M3 limitations. Functional Hub / Copilot proof **reused from M3** (no Hub rebuild, no Copilot re-demo). Graph readiness **reused from M4** (no retest). |
+| What worked | Trial / environment usable through 2026-09-20: **YES**. Material additional Trial blocker: **NO**. S1 Pass criteria for SPO + Copilot path already evidenced in §M3. |
+| What did not work / limitations | Researcher / Analyst / Power Automate not forced into M2 (**TBD-013** remains open). M3 Card cross-use **CONSTRAINED** limitation unchanged. |
+| Required permissions / prerequisites | Same as licensed M3 Hub / Copilot access; no new tenant configuration in M2. |
+| Constraints | Do not commit Trial contract numbers, tenant IDs, private URLs, or account identifiers. Do not reopen M3/M4 live proofs. |
+| Usefulness to Research Hub | Unblocks deadline-dependent Microsoft readiness without duplicating Hub evidence. |
+| Adopt / defer decision | **Adopt** continuing use of existing Hub + Copilot through the PoC window on M3 evidence + Trial confirmation. See `docs/decisions/m2-external-readiness.md` for S1–S7 package (including BigQuery readiness and Azure **NO-GO**). |
+| Evidence location (public-safe) | This entry; `docs/decisions/m2-external-readiness.md`; §M3 / §M4 below; `docs/cloud-comparison.md` for S6/S7. |
 
 ## M3 — SharePoint Research Hub / Copilot
 
@@ -71,6 +87,7 @@ M3 and M4 have separate entries below. Do **not** treat Human historical recolle
 ## Related
 
 - Requirements: `docs/requirements.md` §§13, 14.1, 19.2, FR-HUB-001〜008, FR-INT-001〜002, AC-HUB-001〜005, AC-M365-001〜003
-- Plan: `implementation-plan.md` §§5.1 (S1–S3), 6 (M3–M4), 10
+- Plan: `implementation-plan.md` §§5.1 (S1–S3), 6 (M2–M4), 10
 - Ops: `docs/operations/m3-hub-reconfirm-checklist.md`, `docs/operations/m4-graph-spo-smoke.md`
-- Decisions: `docs/decisions/m3-hub-corpus-workflow.md`, `docs/decisions/m4-auth-interactive-browser.md`
+- Decisions: `docs/decisions/m2-external-readiness.md`, `docs/decisions/m3-hub-corpus-workflow.md`, `docs/decisions/m4-auth-interactive-browser.md`
+- Cloud: `docs/cloud-comparison.md` (M2 BigQuery readiness; Azure NO-GO)
