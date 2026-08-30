@@ -247,8 +247,9 @@ class SmokeHttpClient:
                 raise RuntimeError("HTTP attempt ceiling reached")
 
             # Pre-request hard stop — before any network I/O for this attempt.
+            reservation_id: str | None = None
             if self.daily_cost_guard is not None:
-                self.daily_cost_guard.authorize_next_attempt()
+                reservation_id = self.daily_cost_guard.authorize_next_attempt()
 
             progress(
                 "HTTP request start",
@@ -275,7 +276,8 @@ class SmokeHttpClient:
                 if self.daily_cost_guard is not None:
                     # Every billable attempt (including retries) hits the daily ledger.
                     self.daily_cost_guard.record_billable_attempt(
-                        source_reported_cost_usd=attempt_header_cost
+                        source_reported_cost_usd=attempt_header_cost,
+                        reservation_id=reservation_id,
                     )
                 last_status, last_headers, last_body = status, hdrs, body
                 progress(
@@ -303,6 +305,7 @@ class SmokeHttpClient:
                 if type(exc).__name__ in {
                     "DailyCostCeilingExceeded",
                     "DailyCostLedgerError",
+                    "CostModelMismatch",
                 }:
                     raise
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
@@ -318,7 +321,10 @@ class SmokeHttpClient:
                 # Network exception after authorize: still a billable attempt risk;
                 # record unit cost via guard when present (fail-closed accounting).
                 if self.daily_cost_guard is not None:
-                    self.daily_cost_guard.record_billable_attempt(source_reported_cost_usd=None)
+                    self.daily_cost_guard.record_billable_attempt(
+                        source_reported_cost_usd=None,
+                        reservation_id=reservation_id,
+                    )
                 progress(
                     "HTTP request error",
                     f"attempt={attempt} category={type(exc).__name__} elapsed_ms={elapsed_ms}",

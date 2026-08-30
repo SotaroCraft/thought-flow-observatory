@@ -15,6 +15,7 @@ from typing import Any, Callable, Literal, Sequence
 
 from thought_flow.atomic_io import atomic_write_text
 from thought_flow.ingestion.openalex.backfill import (
+    FAILURE_COST_MODEL_MISMATCH,
     FAILURE_DAILY_COST_CEILING,
     BackfillResult,
     production_openalex_client,
@@ -27,12 +28,15 @@ from thought_flow.ingestion.openalex.checkpoint import (
     save_checkpoint,
 )
 from thought_flow.ingestion.openalex.daily_cost_ledger import (
+    CostModelMismatch,
     DailyCostCeilingExceeded,
+    DailyCostGuard,
     DailyCostLedgerError,
+    OPENALEX_BILLABLE_ATTEMPT_COST_USD,
     OPENALEX_DAILY_COST_CEILING_USD,
     credential_ledger_id,
     default_ledger_root,
-    DailyCostGuard,
+    resolve_openalex_api_key,
 )
 from thought_flow.ingestion.openalex.planner import (
     CAMPAIGN_COUNTRIES,
@@ -259,11 +263,20 @@ def _dry_run_cost_ledger_view(checkpoint_dir: Path) -> dict[str, Any]:
     """Read-only ledger snapshot for dry-run (no mutation)."""
     # checkpoint_dir = .../manifests/openalex_backfill/checkpoints
     data_root = checkpoint_dir.parents[2]
-    import os
-
+    resolved = resolve_openalex_api_key()
+    if resolved is None:
+        return {
+            "credential_id": "keyless",
+            "ceiling_usd": OPENALEX_DAILY_COST_CEILING_USD,
+            "billable_attempt_cost_usd": OPENALEX_BILLABLE_ATTEMPT_COST_USD,
+            "accumulated_usd": 0.0,
+            "attempt_count": 0,
+            "live_execution_permitted": False,
+            "reason": "api_key_missing",
+        }
     guard = DailyCostGuard(
         ledger_root=default_ledger_root(data_root),
-        credential_id=credential_ledger_id(os.getenv("OPENALEX_API_KEY")),
+        credential_id=credential_ledger_id(resolved),
     )
     try:
         return guard.snapshot().to_public_dict()
@@ -363,6 +376,22 @@ def run_openalex_backfill_campaign(
             "Full-history live campaign is refused in this milestone; "
             "narrow --from-date/--to-date, or use dry-run for the full plan"
         )
+
+    # TFO-M7-017-PC1-R2: reject keyless / guardless live before any manifests or HTTP.
+    if client is not None:
+        live_credential = getattr(client, "api_key", None) or None
+    else:
+        live_credential = resolve_openalex_api_key()
+    if live_credential is None:
+        raise ValueError(
+            "M7 live OpenAlex requires THOUGHT_FLOW_OPENALEX_API_KEY "
+            "(keyless live is prohibited)"
+        )
+    if client is not None:
+        http = getattr(client, "http", None)
+        if http is None or getattr(http, "daily_cost_guard", None) is None:
+            raise ValueError("M7 live requires DailyCostGuard on the OpenAlex client")
+
     requested_partitions = plan_daily_partitions(
         run_end_date=frozen_end,
         countries=live_countries,
@@ -490,19 +519,26 @@ def run_openalex_backfill_campaign(
                 continue
 
             if active_client is None:
-                active_client = production_openalex_client()
+                active_client = production_openalex_client(
+                    data_root=checkpoint_dir.parents[2],
+                    api_key=live_credential,
+                )
 
             # Between-date cost stop: peek only (no reservation); leave day unattempted.
             guard = getattr(active_client.http, "daily_cost_guard", None)
             if guard is not None:
                 try:
                     guard.raise_if_next_attempt_blocked()
-                except (DailyCostCeilingExceeded, DailyCostLedgerError) as exc:
+                except (DailyCostCeilingExceeded, DailyCostLedgerError, CostModelMismatch) as exc:
                     remaining = partitions[part_index:]
                     coverage.unattempted_due_to_stop = len(remaining)
                     had_partition_failure = True
                     source_stop = True
-                    failure_category = FAILURE_DAILY_COST_CEILING
+                    failure_category = (
+                        FAILURE_COST_MODEL_MISMATCH
+                        if isinstance(exc, CostModelMismatch)
+                        else FAILURE_DAILY_COST_CEILING
+                    )
                     failure_message = str(exc)[:500]
                     _sync_http_telemetry(coverage, active_client)
                     break

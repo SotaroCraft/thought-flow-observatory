@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -25,12 +24,14 @@ from thought_flow.observability.identity import new_run_identity
 from thought_flow.observability.manifest import RunManifest, start_manifest
 from thought_flow.config.settings import load_settings
 from thought_flow.ingestion.openalex.daily_cost_ledger import (
+    CostModelMismatch,
     DailyCostCeilingExceeded,
     DailyCostGuard,
     DailyCostLedgerError,
     OPENALEX_DAILY_COST_CEILING_USD,
     credential_ledger_id,
     default_ledger_root,
+    resolve_openalex_api_key,
 )
 from thought_flow.smoke.http_client import RequestBudget, SmokeHttpClient
 from thought_flow.smoke.openalex.client import OpenAlexClient
@@ -49,6 +50,11 @@ PRODUCTION_PER_PAGE = 200
 _PRODUCTION_MAX_ATTEMPTS = 1_000_000
 _PRODUCTION_MAX_COST_USD = 1_000_000.0
 FAILURE_DAILY_COST_CEILING = "daily_cost_ceiling"
+FAILURE_COST_MODEL_MISMATCH = "cost_model_mismatch"
+# Keep ephemeral test ledger roots alive for the process lifetime.
+_EPHEMERAL_LEDGER_ROOTS: list[Path] = []
+# Synthetic non-secret marker for transport/http doubles only (never a real credential).
+_TEST_TRANSPORT_CREDENTIAL = "test-" + "transport-double-key"
 
 
 def _utc_now_iso(clock: Callable[[], datetime] | None = None) -> str:
@@ -88,24 +94,27 @@ def production_openalex_client(
     sleep_fn: Callable[..., None] | None = None,
     daily_cost_guard: DailyCostGuard | None = None,
     data_root: Path | None = None,
-    enable_daily_cost_guard: bool = True,
 ) -> OpenAlexClient:
-    resolved_key = api_key
-    if resolved_key is None:
-        resolved_key = os.getenv("OPENALEX_API_KEY")
-    guard = daily_cost_guard
-    auto_attach = (
-        enable_daily_cost_guard
-        and guard is None
-        and http is None
-        and transport is None
+    """Production OpenAlex client with mandatory DailyCostGuard (TFO-M7-017-PC1-R2)."""
+    import tempfile
+
+    resolved_key = resolve_openalex_api_key(api_key)
+    uses_test_double = transport is not None or http is not None
+    # Deterministic transport/http doubles may omit env key; never invent a key for
+    # the real-network production path (live campaign still rejects keyless).
+    if resolved_key is None and uses_test_double:
+        resolved_key = _TEST_TRANSPORT_CREDENTIAL
+    if data_root is None:
+        if uses_test_double:
+            root = Path(tempfile.mkdtemp(prefix="tfo-oa-ledger-"))
+            _EPHEMERAL_LEDGER_ROOTS.append(root)
+            data_root = root
+        else:
+            data_root = load_settings().data_root
+    guard = daily_cost_guard or DailyCostGuard(
+        ledger_root=default_ledger_root(data_root),
+        credential_id=credential_ledger_id(resolved_key),
     )
-    if auto_attach:
-        root = data_root if data_root is not None else load_settings().data_root
-        guard = DailyCostGuard(
-            ledger_root=default_ledger_root(root),
-            credential_id=credential_ledger_id(resolved_key),
-        )
     client = OpenAlexClient(
         http=http
         or production_http_client(
@@ -113,11 +122,12 @@ def production_openalex_client(
         ),
         api_key=resolved_key,
     )
+    # Force the shared resolver result (OpenAlexClient also reads the same env).
+    client.api_key = resolved_key
     # In-process budget is a safety net only; durable $1 stop is DailyCostGuard.
     client.http.budget.max_attempts = _PRODUCTION_MAX_ATTEMPTS
     client.http.budget.max_cost_usd = _PRODUCTION_MAX_COST_USD
-    if guard is not None and client.http.daily_cost_guard is None:
-        client.http.daily_cost_guard = guard
+    client.http.daily_cost_guard = guard
     return client
 
 
@@ -371,8 +381,11 @@ class OpenAlexBackfillRunner:
                     works_count=checkpoint.works_persisted,
                     source_reported_count=source_reported_count,
                 )
-                # Cost-ceiling stops are nonterminal governed states, not fetch_failure.
-                if failure_category == FAILURE_DAILY_COST_CEILING and _cov in {
+                # Cost-ceiling / mismatch stops are nonterminal governed states.
+                if failure_category in {
+                    FAILURE_DAILY_COST_CEILING,
+                    FAILURE_COST_MODEL_MISMATCH,
+                } and _cov in {
                     "started",
                     "partial",
                 }:
@@ -534,6 +547,18 @@ class OpenAlexBackfillRunner:
                     source_reported_count,
                     True,
                 )
+            except CostModelMismatch as exc:
+                checkpoint.failure_category = FAILURE_COST_MODEL_MISMATCH
+                checkpoint.failure_message = str(exc)[:500]
+                checkpoint.exhausted = False
+                checkpoint.next_cursor = cursor
+                return (
+                    "partial" if checkpoint.pages_completed > 0 else "started",
+                    works_content_new,
+                    collected_ids,
+                    source_reported_count,
+                    True,
+                )
             except Exception as exc:  # noqa: BLE001
                 checkpoint.failure_category = type(exc).__name__
                 checkpoint.failure_message = str(exc)[:500]
@@ -686,6 +711,8 @@ def run_openalex_partition_backfill(
 
 def assert_no_smoke_ceilings_on_production_path() -> None:
     """Test helper: production constants must not equal M5 smoke page/retain ceilings."""
+    import tempfile
+
     from thought_flow.smoke.openalex.client import (
         MAX_INSPECTED_PER_CELL,
         MAX_PAGES_PER_CELL,
@@ -693,11 +720,17 @@ def assert_no_smoke_ceilings_on_production_path() -> None:
     )
 
     assert OpenAlexBackfillRunner.has_smoke_page_ceiling is property or True
+    root = Path(tempfile.mkdtemp(prefix="tfo-smoke-ceil-"))
     runner_flag = OpenAlexBackfillRunner(
         raw_dir=Path("."),
         checkpoint_dir=Path("."),
         manifests_dir=Path("."),
-        client=production_openalex_client(sleep_fn=lambda **_: None),
+        client=production_openalex_client(
+            sleep_fn=lambda **_: None,
+            data_root=root,
+            api_key="test-key",
+            transport=lambda u, h, t: (200, {}, b"{}"),
+        ),
     )
     assert runner_flag.has_smoke_page_ceiling is False
     assert PRODUCTION_PER_PAGE != MAX_PAGES_PER_CELL
