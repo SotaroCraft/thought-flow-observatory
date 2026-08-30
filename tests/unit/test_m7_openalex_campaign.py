@@ -578,3 +578,308 @@ def test_quality_state_distinctions_in_plan_summary(tmp_path: Path) -> None:
 def test_raw_paths_still_gitignored() -> None:
     gitignore = (Path(__file__).resolve().parents[2] / ".gitignore").read_text(encoding="utf-8")
     assert "workspace-data/" in gitignore
+
+
+def test_source_stop_on_persistent_429_before_first_page(tmp_path: Path) -> None:
+    raw, ck, man = _dirs(tmp_path)
+    urls: list[str] = []
+
+    def transport(url: str, headers: dict[str, str], timeout: float):
+        urls.append(url)
+        if "2022-12-01" in url:
+            return 200, {}, _page([], count=0)
+        return 429, {"Retry-After": "43633"}, b'{"error":"rate"}'
+
+    client = production_openalex_client(transport=transport, sleep_fn=lambda **_: None)
+    result = run_openalex_backfill_campaign(
+        raw_dir=raw,
+        checkpoint_dir=ck,
+        manifests_dir=man,
+        live=True,
+        countries=("JP",),
+        range_start=date(2022, 12, 1),
+        range_end=date(2022, 12, 3),
+        run_end_date=FIXED_END,
+        client=client,
+        install_signal_handlers=False,
+    )
+    assert isinstance(result, CampaignResult)
+    assert result.outcome == "partial"
+    assert result.coverage.zero == 1
+    assert result.coverage.fetch_failure == 1
+    assert result.coverage.attempted == 2
+    assert result.coverage.unattempted_due_to_stop == 1
+    assert result.coverage.omitted_by_max_partitions == 0
+    assert (ck / "openalex_JP_2022-12-03.json").exists() is False
+    assert all("2022-12-03" not in u for u in urls)
+    assert result.failure_category in {"http_429", "fetch_failure"} or "429" in (
+        result.failure_message or ""
+    )
+
+
+def test_source_stop_on_persistent_429_after_persisted_page(tmp_path: Path) -> None:
+    raw, ck, man = _dirs(tmp_path)
+    urls: list[str] = []
+
+    def transport(url: str, headers: dict[str, str], timeout: float):
+        urls.append(url)
+        if "2022-12-01" in url:
+            cursor = _cursor(url)
+            if cursor == "*":
+                return 200, {}, _page(
+                    [_work("W1", "kept", ["JP"])],
+                    count=2,
+                    next_cursor="page2",
+                )
+            return 429, {"Retry-After": "43633"}, b'{"error":"rate"}'
+        raise AssertionError("later partitions must not be fetched")
+
+    client = production_openalex_client(transport=transport, sleep_fn=lambda **_: None)
+    result = run_openalex_backfill_campaign(
+        raw_dir=raw,
+        checkpoint_dir=ck,
+        manifests_dir=man,
+        live=True,
+        countries=("JP",),
+        range_start=date(2022, 12, 1),
+        range_end=date(2022, 12, 3),
+        run_end_date=FIXED_END,
+        client=client,
+        install_signal_handlers=False,
+    )
+    assert isinstance(result, CampaignResult)
+    assert result.outcome == "partial"
+    assert result.coverage.partial == 1
+    assert result.coverage.attempted == 1
+    assert result.coverage.unattempted_due_to_stop == 2
+    assert (ck / "openalex_JP_2022-12-02.json").exists() is False
+    assert (ck / "openalex_JP_2022-12-03.json").exists() is False
+    day1 = json.loads((ck / "openalex_JP_2022-12-01.json").read_text(encoding="utf-8"))
+    assert day1["coverage_status"] == "partial"
+    assert day1["works_persisted"] == 1
+    assert list((raw / "content").glob("*.parquet"))
+
+
+def test_transient_429_recovers_and_continues(tmp_path: Path) -> None:
+    raw, ck, man = _dirs(tmp_path)
+    calls = {"n": 0}
+
+    def transport(url: str, headers: dict[str, str], timeout: float):
+        calls["n"] += 1
+        if "2022-12-01" in url and calls["n"] == 1:
+            return 429, {"Retry-After": "0"}, b'{"error":"rate"}'
+        return 200, {}, _page([], count=0)
+
+    client = production_openalex_client(transport=transport, sleep_fn=lambda **_: None)
+    result = run_openalex_backfill_campaign(
+        raw_dir=raw,
+        checkpoint_dir=ck,
+        manifests_dir=man,
+        live=True,
+        countries=("JP",),
+        range_start=date(2022, 12, 1),
+        range_end=date(2022, 12, 2),
+        run_end_date=FIXED_END,
+        client=client,
+        install_signal_handlers=False,
+    )
+    assert isinstance(result, CampaignResult)
+    assert result.outcome == "succeeded"
+    assert result.coverage.zero == 2
+    assert result.coverage.unattempted_due_to_stop == 0
+    assert calls["n"] >= 3
+
+
+def test_source_stop_preserves_later_existing_checkpoints(tmp_path: Path) -> None:
+    raw, ck, man = _dirs(tmp_path)
+    later = PartitionCheckpoint.new(
+        partition_id="openalex|JP|2022-12-03",
+        country="JP",
+        inclusive_start="2022-12-03",
+        inclusive_end="2022-12-03",
+        run_end_date="2026-08-30",
+    )
+    later.set_coverage("success")
+    later.exhausted = True
+    later_path = checkpoint_path(ck, later.partition_id)
+    save_checkpoint(later_path, later)
+    before = later_path.read_text(encoding="utf-8")
+
+    def transport(url: str, headers: dict[str, str], timeout: float):
+        if "2022-12-01" in url:
+            return 200, {}, _page([], count=0)
+        return 500, {}, b"boom"
+
+    client = production_openalex_client(transport=transport, sleep_fn=lambda **_: None)
+    result = run_openalex_backfill_campaign(
+        raw_dir=raw,
+        checkpoint_dir=ck,
+        manifests_dir=man,
+        live=True,
+        countries=("JP",),
+        range_start=date(2022, 12, 1),
+        range_end=date(2022, 12, 3),
+        run_end_date=FIXED_END,
+        client=client,
+        install_signal_handlers=False,
+    )
+    assert isinstance(result, CampaignResult)
+    assert result.outcome == "partial"
+    assert result.coverage.fetch_failure == 1
+    assert result.coverage.unattempted_due_to_stop == 1
+    assert later_path.read_text(encoding="utf-8") == before
+
+
+def test_cli_passes_openalex_api_key_to_campaign_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_client(*, api_key: str | None = None, **kwargs: Any):
+        captured["api_key"] = api_key
+        return production_openalex_client(
+            transport=lambda url, headers, timeout: (200, {}, _page([], count=0)),
+            sleep_fn=lambda **_: None,
+            api_key=api_key,
+        )
+
+    monkeypatch.setenv("THOUGHT_FLOW_DATA_ROOT", str(tmp_path))
+    monkeypatch.setenv("THOUGHT_FLOW_OPENALEX_API_KEY", "test-secret-key-value")
+    monkeypatch.setattr(
+        "thought_flow.ingestion.openalex.backfill.production_openalex_client",
+        fake_client,
+    )
+
+    from thought_flow import cli as cli_pkg
+
+    code = cli_pkg.run_m7_openalex_backfill_campaign(
+        live=True,
+        countries=["JP"],
+        from_date="2022-12-01",
+        to_date="2022-12-01",
+        max_partitions=1,
+        run_end_date="2026-08-30",
+    )
+    assert code in {0, 1}
+    assert captured.get("api_key") == "test-secret-key-value"
+
+    monkeypatch.delenv("THOUGHT_FLOW_OPENALEX_API_KEY", raising=False)
+    captured.clear()
+    code2 = cli_pkg.run_m7_openalex_backfill_campaign(
+        live=True,
+        countries=["JP"],
+        from_date="2022-12-01",
+        to_date="2022-12-01",
+        max_partitions=1,
+        run_end_date="2026-08-30",
+    )
+    assert code2 in {0, 1}
+    assert captured.get("api_key") is None
+
+
+def test_source_stop_on_hard_exception(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    raw, ck, man = _dirs(tmp_path)
+    calls = {"n": 0}
+
+    def boom(**kwargs: Any):
+        calls["n"] += 1
+        raise RuntimeError("simulated hard failure")
+
+    monkeypatch.setattr(
+        "thought_flow.ingestion.openalex.campaign.run_openalex_partition_backfill",
+        boom,
+    )
+    def no_http(url: str, headers: dict[str, str], timeout: float):
+        raise AssertionError("no HTTP")
+
+    client = production_openalex_client(transport=no_http, sleep_fn=lambda **_: None)
+    result = run_openalex_backfill_campaign(
+        raw_dir=raw,
+        checkpoint_dir=ck,
+        manifests_dir=man,
+        live=True,
+        countries=("JP",),
+        range_start=date(2022, 12, 1),
+        range_end=date(2022, 12, 3),
+        run_end_date=FIXED_END,
+        client=client,
+        install_signal_handlers=False,
+    )
+    assert isinstance(result, CampaignResult)
+    assert result.outcome == "partial"
+    assert result.coverage.fetch_failure == 1
+    assert result.coverage.attempted == 1
+    assert result.coverage.unattempted_due_to_stop == 2
+    assert result.failure_category == "RuntimeError"
+    assert "simulated hard failure" in (result.failure_message or "")
+    assert calls["n"] == 1
+    assert (ck / "openalex_JP_2022-12-01.json").exists() is False
+    assert (ck / "openalex_JP_2022-12-02.json").exists() is False
+    assert (ck / "openalex_JP_2022-12-03.json").exists() is False
+
+
+def test_cli_passes_openalex_api_key_to_canary_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_client(*, api_key: str | None = None, **kwargs: Any):
+        captured["api_key"] = api_key
+        return production_openalex_client(
+            transport=lambda url, headers, timeout: (200, {}, _page([], count=0)),
+            sleep_fn=lambda **_: None,
+            api_key=api_key,
+        )
+
+    monkeypatch.setenv("THOUGHT_FLOW_DATA_ROOT", str(tmp_path))
+    monkeypatch.setenv("THOUGHT_FLOW_OPENALEX_API_KEY", "canary-secret-key-value")
+    monkeypatch.setattr(
+        "thought_flow.ingestion.openalex.backfill.production_openalex_client",
+        fake_client,
+    )
+
+    from thought_flow import cli as cli_pkg
+
+    code = cli_pkg.run_m7_openalex_backfill_canary(
+        live=True,
+        country="JP",
+        source_date="2022-12-01",
+    )
+    assert code in {0, 1}
+    assert captured.get("api_key") == "canary-secret-key-value"
+
+
+def test_cli_dry_run_does_not_construct_openalex_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    constructed = {"n": 0}
+
+    def fake_client(*, api_key: str | None = None, **kwargs: Any):
+        constructed["n"] += 1
+        raise AssertionError("dry-run must not construct production client")
+
+    monkeypatch.setenv("THOUGHT_FLOW_DATA_ROOT", str(tmp_path))
+    monkeypatch.setenv("THOUGHT_FLOW_OPENALEX_API_KEY", "unused-secret-key-value")
+    monkeypatch.setattr(
+        "thought_flow.ingestion.openalex.backfill.production_openalex_client",
+        fake_client,
+    )
+
+    from thought_flow import cli as cli_pkg
+
+    code_campaign = cli_pkg.run_m7_openalex_backfill_campaign(
+        live=False,
+        countries=["JP"],
+        from_date="2022-12-01",
+        to_date="2022-12-01",
+        max_partitions=1,
+        run_end_date="2026-08-30",
+    )
+    code_canary = cli_pkg.run_m7_openalex_backfill_canary(
+        live=False,
+        country="JP",
+        source_date="2022-12-01",
+    )
+    assert code_campaign == 0
+    assert code_canary == 0
+    assert constructed["n"] == 0
