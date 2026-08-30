@@ -763,7 +763,8 @@ def test_cli_passes_openalex_api_key_to_campaign_client(
     assert code in {0, 1}
     assert captured.get("api_key") == "test-secret-key-value"
 
-    monkeypatch.delenv("THOUGHT_FLOW_OPENALEX_API_KEY", raising=False)
+    # Isolate from any process/.env key: force helper to report unset.
+    monkeypatch.setattr(cli_pkg, "_openalex_api_key_from_env", lambda: None)
     captured.clear()
     code2 = cli_pkg.run_m7_openalex_backfill_campaign(
         live=True,
@@ -883,3 +884,65 @@ def test_cli_dry_run_does_not_construct_openalex_client(
     assert code_campaign == 0
     assert code_canary == 0
     assert constructed["n"] == 0
+
+
+def test_campaign_skip_normalizes_stale_success_failure_metadata(tmp_path: Path) -> None:
+    raw, ck, man = _dirs(tmp_path)
+    stale = PartitionCheckpoint.new(
+        partition_id="openalex|JP|2022-12-01",
+        country="JP",
+        inclusive_start="2022-12-01",
+        inclusive_end="2022-12-01",
+        run_end_date="2026-08-30",
+    )
+    stale.set_coverage("success")
+    stale.exhausted = True
+    stale.failure_category = "http_429"
+    stale.failure_message = "stale leftover"
+    path = checkpoint_path(ck, stale.partition_id)
+    save_checkpoint(path, stale)
+
+    calls = {"n": 0}
+
+    def transport(url: str, headers: dict[str, str], timeout: float):
+        calls["n"] += 1
+        raise AssertionError("skip path must not HTTP")
+
+    client = production_openalex_client(transport=transport, sleep_fn=lambda **_: None)
+    result = run_openalex_backfill_campaign(
+        raw_dir=raw,
+        checkpoint_dir=ck,
+        manifests_dir=man,
+        live=True,
+        countries=("JP",),
+        range_start=date(2022, 12, 1),
+        range_end=date(2022, 12, 1),
+        run_end_date=FIXED_END,
+        client=client,
+        install_signal_handlers=False,
+    )
+    assert isinstance(result, CampaignResult)
+    assert result.outcome == "succeeded"
+    assert result.coverage.skipped == 1
+    assert result.coverage.attempted == 0
+    assert calls["n"] == 0
+    reloaded = load_checkpoint(path)
+    assert reloaded is not None
+    assert reloaded.failure_category is None
+    assert reloaded.failure_message is None
+    after = path.read_text(encoding="utf-8")
+    result2 = run_openalex_backfill_campaign(
+        raw_dir=raw,
+        checkpoint_dir=ck,
+        manifests_dir=man,
+        live=True,
+        countries=("JP",),
+        range_start=date(2022, 12, 1),
+        range_end=date(2022, 12, 1),
+        run_end_date=FIXED_END,
+        client=client,
+        install_signal_handlers=False,
+    )
+    assert result2.coverage.skipped == 1
+    assert calls["n"] == 0
+    assert path.read_text(encoding="utf-8") == after

@@ -23,6 +23,7 @@ from thought_flow.ingestion.openalex.checkpoint import (
     PartitionCheckpoint,
     checkpoint_path,
     load_checkpoint,
+    save_checkpoint,
 )
 from thought_flow.ingestion.openalex.planner import (
     CAMPAIGN_COUNTRIES,
@@ -443,6 +444,10 @@ def run_openalex_backfill_campaign(
                 elif status == "zero":
                     coverage.zero += 1
                 if ck is not None:
+                    # Normalize success/zero checkpoints that still carry stale failure
+                    # metadata — no HTTP, no Raw mutation.
+                    if ck.clear_failure_metadata_if_recovered():
+                        save_checkpoint(checkpoint_path(checkpoint_dir, part.partition_id), ck)
                     coverage.pages_completed += ck.pages_completed
                     coverage.works_persisted += ck.works_persisted
                     coverage.unknown_country_works += ck.unknown_country_works
