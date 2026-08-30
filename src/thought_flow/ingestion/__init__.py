@@ -1,4 +1,4 @@
-"""Thin ingestion package. Connectors arrive in later milestones."""
+"""Thin ingestion package. OpenAlex backfill foundation lives under ingestion.openalex."""
 
 from thought_flow.ingestion.raw_store import (
     RawPersistResult,

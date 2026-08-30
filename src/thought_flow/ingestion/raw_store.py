@@ -135,7 +135,14 @@ def persist_raw_record(
         pq.write_table(_content_table(content_id=content_id, payload=payload), content_path)
     elif content_path.is_file():
         # Existing content must remain untouched (immutable Raw).
-        pass
+        # Conflicting bytes at the same content identity fail closed.
+        existing = load_content_payload(content_path)
+        existing_norm = json.dumps(existing, sort_keys=True, ensure_ascii=False)
+        incoming_norm = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+        if existing_norm != incoming_norm:
+            raise FileExistsError(
+                f"Content conflict at existing Raw identity (refusing overwrite): {content_path}"
+            )
     else:
         raise FileExistsError(f"Content path exists but is not a file: {content_path}")
 
