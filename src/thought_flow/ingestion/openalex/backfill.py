@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -22,6 +23,15 @@ from thought_flow.ingestion.openalex.window import (
 from thought_flow.ingestion.raw_store import persist_raw_record
 from thought_flow.observability.identity import new_run_identity
 from thought_flow.observability.manifest import RunManifest, start_manifest
+from thought_flow.config.settings import load_settings
+from thought_flow.ingestion.openalex.daily_cost_ledger import (
+    DailyCostCeilingExceeded,
+    DailyCostGuard,
+    DailyCostLedgerError,
+    OPENALEX_DAILY_COST_CEILING_USD,
+    credential_ledger_id,
+    default_ledger_root,
+)
 from thought_flow.smoke.http_client import RequestBudget, SmokeHttpClient
 from thought_flow.smoke.openalex.client import OpenAlexClient
 from thought_flow.smoke.openalex.project import (
@@ -33,9 +43,10 @@ from thought_flow.smoke.quality import QualityState, page_query_quality_state
 SOURCE_IDENTITY = "openalex.works"
 # Production page size. Smoke PER_PAGE=25 ceilings are intentionally unused.
 PRODUCTION_PER_PAGE = 200
-# No M5 smoke attempt/cost ceilings on the production path.
+# In-process attempt bound remains high; UTC-day $1 hard stop is the DailyCostGuard.
 _PRODUCTION_MAX_ATTEMPTS = 1_000_000
-_PRODUCTION_MAX_COST_USD = 1_000_000.0
+_PRODUCTION_MAX_COST_USD = OPENALEX_DAILY_COST_CEILING_USD
+FAILURE_DAILY_COST_CEILING = "daily_cost_ceiling"
 
 
 def _utc_now_iso(clock: Callable[[], datetime] | None = None) -> str:
@@ -49,14 +60,16 @@ def production_http_client(
     *,
     transport: Callable[..., tuple[int, dict[str, str], bytes]] | None = None,
     sleep_fn: Callable[..., None] | None = None,
+    daily_cost_guard: DailyCostGuard | None = None,
 ) -> SmokeHttpClient:
-    """HTTP client reusing M5 Retry-After policy without smoke attempt/cost ceilings."""
+    """HTTP client with production Retry-After policy and UTC-day $1 hard stop."""
     kwargs: dict[str, Any] = {
         "budget": RequestBudget(
             max_attempts=_PRODUCTION_MAX_ATTEMPTS,
             max_cost_usd=_PRODUCTION_MAX_COST_USD,
         ),
         "user_agent": "thought-flow-observatory-m7-backfill (research; local)",
+        "daily_cost_guard": daily_cost_guard,
     }
     if transport is not None:
         kwargs["transport"] = transport
@@ -71,14 +84,38 @@ def production_openalex_client(
     api_key: str | None = None,
     transport: Callable[..., tuple[int, dict[str, str], bytes]] | None = None,
     sleep_fn: Callable[..., None] | None = None,
+    daily_cost_guard: DailyCostGuard | None = None,
+    data_root: Path | None = None,
+    enable_daily_cost_guard: bool = True,
 ) -> OpenAlexClient:
-    client = OpenAlexClient(
-        http=http or production_http_client(transport=transport, sleep_fn=sleep_fn),
-        api_key=api_key,
+    resolved_key = api_key
+    if resolved_key is None:
+        resolved_key = os.getenv("OPENALEX_API_KEY")
+    guard = daily_cost_guard
+    auto_attach = (
+        enable_daily_cost_guard
+        and guard is None
+        and http is None
+        and transport is None
     )
-    # OpenAlexClient.__init__ reapplies smoke cost ceilings — clear them for production.
+    if auto_attach:
+        root = data_root if data_root is not None else load_settings().data_root
+        guard = DailyCostGuard(
+            ledger_root=default_ledger_root(root),
+            credential_id=credential_ledger_id(resolved_key),
+        )
+    client = OpenAlexClient(
+        http=http
+        or production_http_client(
+            transport=transport, sleep_fn=sleep_fn, daily_cost_guard=guard
+        ),
+        api_key=resolved_key,
+    )
+    # Keep in-process ceiling aligned with the daily hard stop; ledger spans runs.
     client.http.budget.max_attempts = _PRODUCTION_MAX_ATTEMPTS
     client.http.budget.max_cost_usd = _PRODUCTION_MAX_COST_USD
+    if guard is not None and client.http.daily_cost_guard is None:
+        client.http.daily_cost_guard = guard
     return client
 
 
@@ -475,6 +512,19 @@ class OpenAlexBackfillRunner:
                     search=None,
                     cursor=cursor,
                     per_page=self.per_page,
+                )
+            except (DailyCostCeilingExceeded, DailyCostLedgerError) as exc:
+                checkpoint.failure_category = FAILURE_DAILY_COST_CEILING
+                checkpoint.failure_message = str(exc)[:500]
+                checkpoint.exhausted = False
+                # Preserve next_cursor for governed resume on a later UTC day.
+                checkpoint.next_cursor = cursor
+                return (
+                    "partial" if checkpoint.pages_completed > 0 else "started",
+                    works_content_new,
+                    collected_ids,
+                    source_reported_count,
+                    True,
                 )
             except Exception as exc:  # noqa: BLE001
                 checkpoint.failure_category = type(exc).__name__
