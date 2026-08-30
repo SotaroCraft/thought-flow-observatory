@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import random
 import time
 import urllib.error
@@ -107,14 +108,52 @@ class RequestBudget:
             self.stop_reason = self.stop_reason or "cost_ceiling"
 
 
+def coerce_source_reported_cost_usd(value: Any) -> float | None:
+    """Accept finite non-negative source costs; keep unknown as null (never invent 0).
+
+    Numeric 0 from the source is preserved as 0.0. Bool, NaN, Inf, negatives,
+    and non-numeric values are rejected.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(parsed) or parsed < 0.0:
+        return None
+    return parsed
+
+
 def _parse_cost(headers: dict[str, str]) -> float | None:
+    """Read X-API-Cost header when present and valid."""
     for k, v in headers.items():
         if k.lower() == "x-api-cost":
-            try:
-                return float(v)
-            except ValueError:
-                return None
+            return coerce_source_reported_cost_usd(v)
     return None
+
+
+def resolve_openalex_cost_usd(
+    *,
+    headers: dict[str, str],
+    payload: dict[str, Any] | None = None,
+) -> float | None:
+    """Prefer X-API-Cost; fall back to payload meta.cost_usd; never double-count.
+
+    Precedence:
+    1. Valid X-API-Cost header
+    2. Else valid payload['meta']['cost_usd'] when payload is provided
+    3. Else null (source did not report a usable cost)
+    """
+    header_cost = _parse_cost(headers)
+    if header_cost is not None:
+        return header_cost
+    if not isinstance(payload, dict):
+        return None
+    meta = payload.get("meta")
+    if not isinstance(meta, dict):
+        return None
+    return coerce_source_reported_cost_usd(meta.get("cost_usd"))
 
 
 def parse_retry_after_seconds(retry_after: str | None) -> float | None:
@@ -223,7 +262,9 @@ class SmokeHttpClient:
                         retry_after=retry_after,
                     )
                 )
-                self.budget.register(attempts=1, cost_usd=_parse_cost(hdrs))
+                # Count attempts per try; register header cost once for the
+                # terminal response (not on intermediate retries).
+                self.budget.register(attempts=1, cost_usd=None)
                 last_status, last_headers, last_body = status, hdrs, body
                 progress(
                     "HTTP response received",
@@ -267,13 +308,17 @@ class SmokeHttpClient:
                 raise
 
         assert last_status is not None
+        # One logical response → at most one header-cost registration.
+        header_cost = _parse_cost(last_headers)
+        if header_cost is not None:
+            self.budget.register(attempts=0, cost_usd=header_cost)
         return HttpResponse(
             status_code=last_status,
             headers={k.lower(): v for k, v in last_headers.items()},
             body=last_body,
             url=sanitized,
             attempts=attempts,
-            cost_usd=_parse_cost(last_headers),
+            cost_usd=header_cost,
             terminal_blocker=terminal_blocker,
         )
 
