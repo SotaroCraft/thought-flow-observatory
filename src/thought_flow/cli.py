@@ -349,6 +349,73 @@ def run_m7_openalex_backfill_canary(
     return 0 if result.coverage_status in {"success", "zero"} else 1
 
 
+def run_m7_openalex_backfill_campaign(
+    *,
+    live: bool,
+    countries: list[str] | None,
+    from_date: str | None,
+    to_date: str | None,
+    max_partitions: int | None,
+    run_end_date: str | None,
+) -> int:
+    """Dry-run campaign plan by default; live requires explicit country + date bounds."""
+    from datetime import date as date_cls
+
+    from thought_flow.ingestion.openalex.campaign import (
+        CampaignPlan,
+        CampaignResult,
+        run_openalex_backfill_campaign,
+    )
+
+    settings = load_settings()
+    settings.ensure_directories()
+    checkpoint_dir = settings.manifests_dir / "openalex_backfill" / "checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+    range_start = date_cls.fromisoformat(from_date) if from_date else None
+    range_end = date_cls.fromisoformat(to_date) if to_date else None
+    frozen_end = date_cls.fromisoformat(run_end_date) if run_end_date else None
+
+    if live and (not countries or range_start is None or range_end is None):
+        print(
+            json.dumps(
+                {
+                    "error": "live_requires_explicit_bounds",
+                    "message": (
+                        "Live campaign requires --country and --from-date/--to-date. "
+                        "Full-history live is refused."
+                    ),
+                },
+                indent=2,
+            )
+        )
+        return 2
+
+    try:
+        result = run_openalex_backfill_campaign(
+            raw_dir=settings.raw_dir,
+            checkpoint_dir=checkpoint_dir,
+            manifests_dir=settings.manifests_dir,
+            live=live,
+            countries=countries,
+            range_start=range_start,
+            range_end=range_end,
+            run_end_date=frozen_end,
+            max_partitions=max_partitions,
+            code_revision=_code_revision(settings.repo_root),
+        )
+    except ValueError as exc:
+        print(json.dumps({"error": "invalid_campaign_request", "message": str(exc)}, indent=2))
+        return 2
+
+    if isinstance(result, CampaignPlan):
+        print(json.dumps(result.to_public_summary(), indent=2, ensure_ascii=False))
+        return 0
+    assert isinstance(result, CampaignResult)
+    print(json.dumps(result.to_public_summary(), indent=2, ensure_ascii=False))
+    return 0 if result.outcome == "succeeded" else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="thought-flow",
@@ -434,6 +501,47 @@ def build_parser() -> argparse.ArgumentParser:
         default="2022-12-01",
         help="Single inclusive publication date for the canary partition (YYYY-MM-DD).",
     )
+
+    m7_campaign = sub.add_parser(
+        "m7-openalex-backfill-campaign",
+        help=(
+            "M7 OpenAlex campaign planner/executor. Default is dry-run (no network/Raw writes). "
+            "Live requires --live plus --country and --from-date/--to-date."
+        ),
+    )
+    m7_campaign.add_argument(
+        "--live",
+        action="store_true",
+        help="Execute bounded live campaign (refuses unbounded full-history).",
+    )
+    m7_campaign.add_argument(
+        "--country",
+        action="append",
+        dest="countries",
+        default=None,
+        help="Target country JP|US|KR|CN (repeatable). Required for --live.",
+    )
+    m7_campaign.add_argument(
+        "--from-date",
+        default=None,
+        help="Inclusive publication-date start (YYYY-MM-DD). Required for --live.",
+    )
+    m7_campaign.add_argument(
+        "--to-date",
+        default=None,
+        help="Inclusive publication-date end (YYYY-MM-DD). Required for --live.",
+    )
+    m7_campaign.add_argument(
+        "--max-partitions",
+        type=int,
+        default=None,
+        help="Optional operational cap on partitions processed (not a smoke page ceiling).",
+    )
+    m7_campaign.add_argument(
+        "--run-end-date",
+        default=None,
+        help="Optional fixed run end date (YYYY-MM-DD) for deterministic planning.",
+    )
     return parser
 
 
@@ -466,6 +574,15 @@ def main(argv: list[str] | None = None) -> int:
             live=args.live,
             country=args.country,
             source_date=args.source_date,
+        )
+    if args.command == "m7-openalex-backfill-campaign":
+        return run_m7_openalex_backfill_campaign(
+            live=args.live,
+            countries=args.countries,
+            from_date=args.from_date,
+            to_date=args.to_date,
+            max_partitions=args.max_partitions,
+            run_end_date=args.run_end_date,
         )
     parser.error(f"Unknown command: {args.command}")
     return 2

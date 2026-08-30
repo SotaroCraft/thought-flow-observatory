@@ -40,3 +40,22 @@ uv run thought-flow m5-trends-csv-import --country US --csv data/samples/m5_tren
 ```
 
 Trends live Raw/CSV evidence remains under gitignored `workspace-data/` unless a frozen licensing decision permits publication.
+
+## M7 OpenAlex backfill campaign
+
+Operational partitions are `country × publication date` (not ISO week Canonical buckets).
+
+Dry-run (default — no network, no Raw/checkpoint writes):
+
+```bash
+uv run thought-flow m7-openalex-backfill-campaign --run-end-date 2026-08-30
+```
+
+Bounded live campaign (explicit country + date range required). Full-window live
+(`JP+US+KR+CN` × `2022-11-30`…run-end) is refused; use dry-run for the full plan:
+
+```bash
+uv run thought-flow m7-openalex-backfill-campaign --live --country JP --from-date 2022-12-01 --to-date 2022-12-02
+```
+
+Resume uses existing checkpoints under `workspace-data/manifests/openalex_backfill/checkpoints/`. Completed `success` / `zero` partitions are skipped. Artifacts stay outside Git.

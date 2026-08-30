@@ -52,9 +52,10 @@ class RunManifest:
         return asdict(self)
 
     def write(self, path: Path) -> Path:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        return path
+        from thought_flow.ingestion.openalex.atomic_io import atomic_write_text
+
+        text = json.dumps(self.to_dict(), indent=2, ensure_ascii=False) + "\n"
+        return atomic_write_text(path, text)
 
 
 def start_manifest(*, run_identity: str, run_type: RunType, code_revision: str | None = None) -> RunManifest:
