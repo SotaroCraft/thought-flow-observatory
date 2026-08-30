@@ -297,10 +297,62 @@ def run_m5_trends_alpha_live_blocked() -> int:
     return 1
 
 
+def run_m7_openalex_backfill_canary(
+    *,
+    live: bool,
+    country: str = "US",
+    source_date: str | None = None,
+) -> int:
+    """Live canary: one target country × one source date; full cursor pages; no Raw in Git."""
+    from datetime import date as date_cls
+
+    from thought_flow.ingestion.openalex.backfill import (
+        production_openalex_client,
+        run_openalex_partition_backfill,
+    )
+    from thought_flow.ingestion.openalex.window import RetrievalPartition, capture_run_end_date
+
+    settings = load_settings()
+    settings.ensure_directories()
+    checkpoint_dir = settings.manifests_dir / "openalex_backfill" / "checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+    day = date_cls.fromisoformat(source_date) if source_date else date_cls(2022, 12, 1)
+    partition = RetrievalPartition.canary_day(country=country, source_date=day)
+    run_end = capture_run_end_date()
+
+    if not live:
+        print(
+            json.dumps(
+                {
+                    "status": "LIVE CANARY NOT RUN",
+                    "reason": "pass --live to perform network retrieval",
+                    "partition": partition.to_manifest(),
+                    "run_end_date": run_end.isoformat(),
+                },
+                indent=2,
+            )
+        )
+        return 0
+
+    client = production_openalex_client()
+    result = run_openalex_partition_backfill(
+        partition=partition,
+        raw_dir=settings.raw_dir,
+        checkpoint_dir=checkpoint_dir,
+        manifests_dir=settings.manifests_dir,
+        client=client,
+        run_end_date=run_end,
+        code_revision=_code_revision(settings.repo_root),
+    )
+    print(json.dumps(result.to_public_summary(), indent=2, ensure_ascii=False))
+    return 0 if result.coverage_status in {"success", "zero"} else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="thought-flow",
-        description="Thought Flow Observatory local entry (M1 / M4 / M5 smokes).",
+        description="Thought Flow Observatory local entry (M1 / M4 / M5 / M7).",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -362,6 +414,26 @@ def build_parser() -> argparse.ArgumentParser:
         default=1,
         help="1 = first observation; 2 = repeat (do not fabricate).",
     )
+
+    m7_canary = sub.add_parser(
+        "m7-openalex-backfill-canary",
+        help="M7 OpenAlex canary: one country × one source date (network only with --live).",
+    )
+    m7_canary.add_argument(
+        "--live",
+        action="store_true",
+        help="Perform live OpenAlex retrieval with full cursor pagination (no smoke ceilings).",
+    )
+    m7_canary.add_argument(
+        "--country",
+        default="JP",
+        help="Target country JP|US|KR|CN (default: JP — bounded canary vs full-day US volume).",
+    )
+    m7_canary.add_argument(
+        "--source-date",
+        default="2022-12-01",
+        help="Single inclusive publication date for the canary partition (YYYY-MM-DD).",
+    )
     return parser
 
 
@@ -388,6 +460,12 @@ def main(argv: list[str] | None = None) -> int:
             country=args.country,
             csv_path=args.csv,
             observation_index=args.observation_index,
+        )
+    if args.command == "m7-openalex-backfill-canary":
+        return run_m7_openalex_backfill_canary(
+            live=args.live,
+            country=args.country,
+            source_date=args.source_date,
         )
     parser.error(f"Unknown command: {args.command}")
     return 2
