@@ -176,7 +176,12 @@ def test_nan_payload_cost_ignored() -> None:
     # Inject NaN after JSON round-trip is impossible; unit-test coerce only.
 
 
-def test_multi_page_payload_costs_sum_into_campaign(tmp_path: Path) -> None:
+def test_multi_page_payload_costs_sum_into_campaign(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_key = "test-cost-telemetry-key"
+    monkeypatch.setenv("THOUGHT_FLOW_OPENALEX_API_KEY", fake_key)
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
     raw = tmp_path / "raw"
     ck = tmp_path / "ck"
     man = tmp_path / "man"
@@ -258,7 +263,12 @@ def test_multi_page_payload_costs_sum_into_campaign(tmp_path: Path) -> None:
         idx["i"] += 1
         return 200, {}, json.dumps(pages[i]).encode()
 
-    client = production_openalex_client(transport=transport, sleep_fn=lambda **_: None)
+    client = production_openalex_client(
+        transport=transport,
+        sleep_fn=lambda **_: None,
+        data_root=tmp_path,
+        api_key=fake_key,
+    )
     result = run_openalex_backfill_campaign(
         raw_dir=raw,
         checkpoint_dir=ck,
