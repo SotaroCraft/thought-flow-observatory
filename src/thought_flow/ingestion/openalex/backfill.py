@@ -276,19 +276,18 @@ class OpenAlexBackfillRunner:
                     checkpoint.last_run_identity = run_id
                     checkpoint_dirty = True
             elif checkpoint.exhausted:
-                # Exhausted journals are fail-closed: reclassify from page source_count
-                # without HTTP. Never drop source_reported_count to None and promote.
-                coverage = classify_partition_coverage(
-                    attempted=True,
-                    pages_completed=checkpoint.pages_completed,
-                    exhausted=True,
-                    fetch_failed=False,
-                    works_count=checkpoint.works_persisted,
-                    source_reported_count=source_reported_count,
+                # Exhausted nonterminal journals are fail-closed without new HTTP
+                # evidence: never promote to success/zero (even when counts match,
+                # exceed, or source_count is absent). Keep last non-null count.
+                prior = checkpoint.coverage_status
+                coverage = (
+                    prior
+                    if prior
+                    in {"partial", "started", "missing", "fetch_failure", "unknown"}
+                    else "partial"
                 )
                 if (
-                    coverage == "partial"
-                    and source_reported_count is not None
+                    source_reported_count is not None
                     and checkpoint.works_persisted < int(source_reported_count)
                 ):
                     failure_category = "source_count_mismatch"
@@ -296,6 +295,7 @@ class OpenAlexBackfillRunner:
                         f"works_persisted={checkpoint.works_persisted} < "
                         f"source_reported_count={source_reported_count}"
                     )
+                    coverage = "partial"
                 if checkpoint.coverage_status != coverage:
                     checkpoint.set_coverage(coverage)
                     checkpoint.last_run_identity = run_id

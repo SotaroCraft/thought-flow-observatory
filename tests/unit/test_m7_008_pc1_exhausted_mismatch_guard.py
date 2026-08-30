@@ -215,3 +215,238 @@ def test_equal_count_exhausted_success_unchanged(tmp_path: Path) -> None:
     )
     assert result.coverage_status == "success"
     assert hashlib.sha256(path.read_bytes()).hexdigest() == before_sha
+
+
+def _raw_inventory(raw_dir: Path) -> str:
+    lines: list[str] = []
+    if raw_dir.exists():
+        for p in sorted(raw_dir.rglob("*")):
+            if p.is_file():
+                lines.append(f"{p.relative_to(raw_dir).as_posix()}\t{p.stat().st_size}")
+    return "\n".join(lines)
+
+
+def _no_http_client() -> object:
+    from thought_flow.ingestion.openalex.backfill import production_openalex_client
+
+    def transport(url: str, headers: dict[str, str], timeout: float):
+        raise AssertionError("HTTP must not be used")
+
+    return production_openalex_client(
+        http=SmokeHttpClient(transport=transport, sleep_fn=lambda **_: None)
+    )
+
+
+def _exhausted_partial_day(
+    *,
+    day: str,
+    source_count: int | None,
+    works: int,
+    coverage: str = "partial",
+) -> PartitionCheckpoint:
+    ck = PartitionCheckpoint.new(
+        partition_id=f"openalex|JP|{day}",
+        country="JP",
+        inclusive_start=day,
+        inclusive_end=day,
+        run_end_date="2026-08-30",
+    )
+    work_ids = [f"https://openalex.org/W{i}" for i in range(works)]
+    raw_ids = [f"raw_{i}" for i in range(works)]
+    ck.record_page(
+        CompletedPage(
+            page_index=0,
+            request_cursor="*",
+            next_cursor=None,
+            source_count=source_count,
+            result_count=works,
+            work_ids=work_ids,
+            raw_content_identities=raw_ids,
+            page_quality_state="success",
+        )
+    )
+    ck.set_coverage(coverage)  # type: ignore[arg-type]
+    assert ck.exhausted is True
+    return ck
+
+
+def test_exhausted_partial_equal_count_stays_partial_sha_stable(tmp_path: Path) -> None:
+    raw = tmp_path / "raw"
+    ck_dir = tmp_path / "ck"
+    man = tmp_path / "man"
+    for d in (raw, ck_dir, man):
+        d.mkdir()
+    (raw / "marker.bin").write_bytes(b"keep")
+    before_inv = _raw_inventory(raw)
+    ck = _exhausted_partial_day(day="2024-04-03", source_count=2, works=2)
+    path = checkpoint_path(ck_dir, ck.partition_id)
+    save_checkpoint(path, ck)
+    before_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    result = run_openalex_partition_backfill(
+        partition=RetrievalPartition(
+            country="JP", inclusive_start=date(2024, 4, 3), inclusive_end=date(2024, 4, 3)
+        ),
+        raw_dir=raw,
+        checkpoint_dir=ck_dir,
+        manifests_dir=man,
+        client=_no_http_client(),
+        run_end_date=FIXED_END,
+    )
+    assert result.coverage_status == "partial"
+    assert result.coverage_status != "success"
+    assert result.source_reported_count == 2
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == before_sha
+    assert _raw_inventory(raw) == before_inv
+
+
+def test_exhausted_partial_persisted_gt_reported_stays_partial(tmp_path: Path) -> None:
+    raw = tmp_path / "raw"
+    ck_dir = tmp_path / "ck"
+    man = tmp_path / "man"
+    for d in (raw, ck_dir, man):
+        d.mkdir()
+    before_inv = _raw_inventory(raw)
+    ck = _exhausted_partial_day(day="2024-04-04", source_count=1, works=2)
+    path = checkpoint_path(ck_dir, ck.partition_id)
+    save_checkpoint(path, ck)
+    before_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    result = run_openalex_partition_backfill(
+        partition=RetrievalPartition(
+            country="JP", inclusive_start=date(2024, 4, 4), inclusive_end=date(2024, 4, 4)
+        ),
+        raw_dir=raw,
+        checkpoint_dir=ck_dir,
+        manifests_dir=man,
+        client=_no_http_client(),
+        run_end_date=FIXED_END,
+    )
+    assert result.coverage_status == "partial"
+    assert result.source_reported_count == 1
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == before_sha
+    assert _raw_inventory(raw) == before_inv
+
+
+def test_exhausted_partial_missing_source_count_stays_partial(tmp_path: Path) -> None:
+    raw = tmp_path / "raw"
+    ck_dir = tmp_path / "ck"
+    man = tmp_path / "man"
+    for d in (raw, ck_dir, man):
+        d.mkdir()
+    before_inv = _raw_inventory(raw)
+    ck = _exhausted_partial_day(day="2024-04-05", source_count=None, works=3)
+    path = checkpoint_path(ck_dir, ck.partition_id)
+    save_checkpoint(path, ck)
+    before_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    result = run_openalex_partition_backfill(
+        partition=RetrievalPartition(
+            country="JP", inclusive_start=date(2024, 4, 5), inclusive_end=date(2024, 4, 5)
+        ),
+        raw_dir=raw,
+        checkpoint_dir=ck_dir,
+        manifests_dir=man,
+        client=_no_http_client(),
+        run_end_date=FIXED_END,
+    )
+    assert result.coverage_status == "partial"
+    assert result.source_reported_count is None
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == before_sha
+    assert _raw_inventory(raw) == before_inv
+
+
+def test_exhausted_started_does_not_promote_to_success(tmp_path: Path) -> None:
+    raw = tmp_path / "raw"
+    ck_dir = tmp_path / "ck"
+    man = tmp_path / "man"
+    for d in (raw, ck_dir, man):
+        d.mkdir()
+    ck = _exhausted_partial_day(
+        day="2024-04-06", source_count=1, works=1, coverage="started"
+    )
+    path = checkpoint_path(ck_dir, ck.partition_id)
+    save_checkpoint(path, ck)
+    before_sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    result = run_openalex_partition_backfill(
+        partition=RetrievalPartition(
+            country="JP", inclusive_start=date(2024, 4, 6), inclusive_end=date(2024, 4, 6)
+        ),
+        raw_dir=raw,
+        checkpoint_dir=ck_dir,
+        manifests_dir=man,
+        client=_no_http_client(),
+        run_end_date=FIXED_END,
+    )
+    assert result.coverage_status == "started"
+    assert result.coverage_status not in {"success", "zero"}
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == before_sha
+
+
+def test_fresh_equal_count_pagination_still_success(tmp_path: Path) -> None:
+    from thought_flow.ingestion.openalex.backfill import production_openalex_client
+
+    raw = tmp_path / "raw"
+    ck_dir = tmp_path / "ck"
+    man = tmp_path / "man"
+    for d in (raw, ck_dir, man):
+        d.mkdir()
+
+    payload = {
+        "meta": {"count": 1, "next_cursor": None},
+        "results": [
+            {
+                "id": "https://openalex.org/Wfresh1",
+                "display_name": "Fresh",
+                "publication_date": "2024-04-07",
+                "authorships": [
+                    {"institutions": [{"country_code": "JP"}], "author": {"id": "A1"}}
+                ],
+            }
+        ],
+    }
+
+    def transport(url: str, headers: dict[str, str], timeout: float):
+        return 200, {}, json.dumps(payload).encode("utf-8")
+
+    result = run_openalex_partition_backfill(
+        partition=RetrievalPartition(
+            country="JP", inclusive_start=date(2024, 4, 7), inclusive_end=date(2024, 4, 7)
+        ),
+        raw_dir=raw,
+        checkpoint_dir=ck_dir,
+        manifests_dir=man,
+        client=production_openalex_client(
+            http=SmokeHttpClient(transport=transport, sleep_fn=lambda **_: None)
+        ),
+        run_end_date=FIXED_END,
+    )
+    assert result.coverage_status == "success"
+    assert result.source_reported_count == 1
+    assert result.works_persisted == 1
+
+
+def test_fresh_zero_pagination_still_zero(tmp_path: Path) -> None:
+    from thought_flow.ingestion.openalex.backfill import production_openalex_client
+
+    raw = tmp_path / "raw"
+    ck_dir = tmp_path / "ck"
+    man = tmp_path / "man"
+    for d in (raw, ck_dir, man):
+        d.mkdir()
+
+    payload = {"meta": {"count": 0, "next_cursor": None}, "results": []}
+
+    def transport(url: str, headers: dict[str, str], timeout: float):
+        return 200, {}, json.dumps(payload).encode("utf-8")
+
+    result = run_openalex_partition_backfill(
+        partition=RetrievalPartition(
+            country="JP", inclusive_start=date(2024, 4, 8), inclusive_end=date(2024, 4, 8)
+        ),
+        raw_dir=raw,
+        checkpoint_dir=ck_dir,
+        manifests_dir=man,
+        client=production_openalex_client(
+            http=SmokeHttpClient(transport=transport, sleep_fn=lambda **_: None)
+        ),
+        run_end_date=FIXED_END,
+    )
+    assert result.coverage_status == "zero"
