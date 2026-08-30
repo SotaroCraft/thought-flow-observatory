@@ -13,6 +13,7 @@ from thought_flow.smoke.http_client import (
     SmokeHttpClient,
     build_url,
     openalex_cost_ceiling_usd,
+    resolve_openalex_cost_usd,
 )
 from thought_flow.smoke.periods import SmokePeriod
 
@@ -157,4 +158,9 @@ class OpenAlexClient:
 
         progress("response parsing", f"status={response.status_code} bytes={len(response.body)}")
         payload = json.loads(response.body.decode("utf-8"))
+        # Prefer header cost (already budgeted); else fall back to meta.cost_usd once.
+        effective_cost = resolve_openalex_cost_usd(headers=response.headers, payload=payload)
+        if response.cost_usd is None and effective_cost is not None:
+            self.http.budget.register(attempts=0, cost_usd=effective_cost)
+        meta["cost_usd"] = effective_cost
         return payload, meta
