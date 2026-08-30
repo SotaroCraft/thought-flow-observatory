@@ -248,9 +248,6 @@ class OpenAlexBackfillRunner:
             if checkpoint.run_end_date:
                 run_end_date = date.fromisoformat(checkpoint.run_end_date)
                 self._run_end_date = run_end_date
-        checkpoint.last_run_identity = run_id
-        if checkpoint.coverage_status in {"missing", "started"}:
-            checkpoint.set_coverage("started")
 
         works_content_new = 0
         collected_ids: list[str] = [
@@ -263,12 +260,20 @@ class OpenAlexBackfillRunner:
         fetch_failed = False
         failure_category: str | None = None
         failure_message: str | None = None
+        # Avoid rewriting terminal clean checkpoints (SHA stability after stale normalize).
+        checkpoint_dirty = existing is None
 
         try:
             if checkpoint.exhausted and checkpoint.coverage_status in {"success", "zero"}:
-                # Idempotent rerun of a completed partition: no refetch, no duplication.
-                pass
+                # Idempotent rerun: no refetch. Clear stale failure metadata once.
+                if checkpoint.clear_failure_metadata_if_recovered():
+                    checkpoint.last_run_identity = run_id
+                    checkpoint_dirty = True
             else:
+                checkpoint.last_run_identity = run_id
+                checkpoint_dirty = True
+                if checkpoint.coverage_status in {"missing", "started"}:
+                    checkpoint.set_coverage("started")
                 (
                     _cov,
                     works_content_new,
@@ -296,6 +301,8 @@ class OpenAlexBackfillRunner:
                 )
                 checkpoint.set_coverage(coverage)
         except Exception as exc:  # noqa: BLE001 — recorded as fetch_failure / partial
+            checkpoint.last_run_identity = run_id
+            checkpoint_dirty = True
             fetch_failed = True
             failure_category = type(exc).__name__
             failure_message = str(exc)[:500]
@@ -311,7 +318,8 @@ class OpenAlexBackfillRunner:
             )
             checkpoint.set_coverage(coverage)
         finally:
-            save_checkpoint(ck_path, checkpoint)
+            if checkpoint_dirty:
+                save_checkpoint(ck_path, checkpoint)
 
         summary = {
             "partition": partition.to_manifest(),

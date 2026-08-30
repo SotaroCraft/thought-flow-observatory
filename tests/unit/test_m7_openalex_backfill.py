@@ -655,3 +655,203 @@ def test_raw_output_paths_excluded_from_git(tmp_path: Path) -> None:
     )
     assert "workspace-data" in str(settings.raw_dir).replace("\\", "/")
     assert settings.raw_dir == settings.data_root / "raw"
+
+
+def test_partial_resume_to_success_clears_failure_metadata(tmp_path: Path) -> None:
+    phase = {"resume": False}
+
+    def transport(url: str, headers: dict[str, str], timeout: float):
+        cursor = _cursor_from_url(url)
+        if cursor == "*":
+            return 200, {}, _page(
+                [_work("W40", "First", countries=["JP"])],
+                count=2,
+                next_cursor="page2",
+            )
+        if not phase["resume"]:
+            return 429, {"Retry-After": "43633"}, b'{"error":"rate"}'
+        return 200, {}, _page(
+            [_work("W41", "Second", countries=["JP"])],
+            count=2,
+            next_cursor=None,
+        )
+
+    raw, ck, man = _dirs(tmp_path)
+    client = production_openalex_client(transport=transport, sleep_fn=lambda **_: None)
+    partition = RetrievalPartition.canary_day(country="JP", source_date=date(2022, 12, 10))
+    first = run_openalex_partition_backfill(
+        partition=partition,
+        raw_dir=raw,
+        checkpoint_dir=ck,
+        manifests_dir=man,
+        client=client,
+        run_end_date=date(2026, 8, 30),
+    )
+    assert first.coverage_status == "partial"
+    assert first.failure_category == "http_429"
+    mid = load_checkpoint(first.checkpoint_path)
+    assert mid is not None
+    assert mid.failure_category == "http_429"
+    failure_manifest = first.manifest_path.read_text(encoding="utf-8")
+
+    phase["resume"] = True
+    second = run_openalex_partition_backfill(
+        partition=partition,
+        raw_dir=raw,
+        checkpoint_dir=ck,
+        manifests_dir=man,
+        client=client,
+        run_end_date=date(2026, 8, 30),
+    )
+    assert second.coverage_status == "success"
+    assert second.failure_category is None
+    recovered = load_checkpoint(second.checkpoint_path)
+    assert recovered is not None
+    assert recovered.failure_category is None
+    assert recovered.failure_message is None
+    success_manifest = json.loads(second.manifest_path.read_text(encoding="utf-8"))
+    assert success_manifest["status"] == "succeeded"
+    assert success_manifest.get("failure_category") is None
+    assert first.manifest_path.read_text(encoding="utf-8") == failure_manifest
+
+
+def test_fetch_failure_resume_to_zero_clears_failure_metadata(tmp_path: Path) -> None:
+    raw, ck, man = _dirs(tmp_path)
+    from thought_flow.ingestion.openalex.checkpoint import (
+        PartitionCheckpoint,
+        checkpoint_path,
+        save_checkpoint,
+    )
+
+    part = RetrievalPartition.canary_day(country="JP", source_date=date(2022, 12, 11))
+    existing = PartitionCheckpoint.new(
+        partition_id=part.partition_id,
+        country="JP",
+        inclusive_start="2022-12-11",
+        inclusive_end="2022-12-11",
+        run_end_date="2026-08-30",
+    )
+    existing.set_coverage("fetch_failure")
+    existing.failure_category = "http_500"
+    existing.failure_message = "boom"
+    existing.next_cursor = "*"
+    path = checkpoint_path(ck, part.partition_id)
+    save_checkpoint(path, existing)
+
+    client = production_openalex_client(
+        transport=lambda url, headers, timeout: (200, {}, _page([], count=0)),
+        sleep_fn=lambda **_: None,
+    )
+    result = run_openalex_partition_backfill(
+        partition=part,
+        raw_dir=raw,
+        checkpoint_dir=ck,
+        manifests_dir=man,
+        client=client,
+        run_end_date=date(2026, 8, 30),
+    )
+    assert result.coverage_status == "zero"
+    reloaded = load_checkpoint(path)
+    assert reloaded is not None
+    assert reloaded.failure_category is None
+    assert reloaded.failure_message is None
+
+
+def test_stale_success_checkpoint_normalizes_without_http(tmp_path: Path) -> None:
+    raw, ck, man = _dirs(tmp_path)
+    from thought_flow.ingestion.openalex.checkpoint import (
+        CompletedPage,
+        PartitionCheckpoint,
+        checkpoint_path,
+        save_checkpoint,
+    )
+
+    part = RetrievalPartition.canary_day(country="JP", source_date=date(2022, 12, 12))
+    existing = PartitionCheckpoint.new(
+        partition_id=part.partition_id,
+        country="JP",
+        inclusive_start="2022-12-12",
+        inclusive_end="2022-12-12",
+        run_end_date="2026-08-30",
+    )
+    existing.record_page(
+        CompletedPage(
+            page_index=0,
+            request_cursor="*",
+            next_cursor=None,
+            source_count=1,
+            result_count=1,
+            work_ids=["https://openalex.org/W9"],
+            raw_content_identities=["cid-w9"],
+            page_quality_state="success",
+        )
+    )
+    existing.set_coverage("success")
+    existing.failure_category = "http_429"
+    existing.failure_message = "stale"
+    path = checkpoint_path(ck, part.partition_id)
+    save_checkpoint(path, existing)
+
+    calls = {"n": 0}
+
+    def transport(url: str, headers: dict[str, str], timeout: float):
+        calls["n"] += 1
+        raise AssertionError("no HTTP on completed partition")
+
+    client = production_openalex_client(transport=transport, sleep_fn=lambda **_: None)
+    result = run_openalex_partition_backfill(
+        partition=part,
+        raw_dir=raw,
+        checkpoint_dir=ck,
+        manifests_dir=man,
+        client=client,
+        run_end_date=date(2026, 8, 30),
+    )
+    assert result.coverage_status == "success"
+    assert calls["n"] == 0
+    reloaded = load_checkpoint(path)
+    assert reloaded is not None
+    assert reloaded.failure_category is None
+    assert reloaded.failure_message is None
+    after = path.read_text(encoding="utf-8")
+    result2 = run_openalex_partition_backfill(
+        partition=part,
+        raw_dir=raw,
+        checkpoint_dir=ck,
+        manifests_dir=man,
+        client=client,
+        run_end_date=date(2026, 8, 30),
+    )
+    assert result2.coverage_status == "success"
+    assert calls["n"] == 0
+    assert path.read_text(encoding="utf-8") == after
+
+
+def test_partial_keeps_failure_metadata(tmp_path: Path) -> None:
+    raw, ck, man = _dirs(tmp_path)
+
+    def transport(url: str, headers: dict[str, str], timeout: float):
+        cursor = _cursor_from_url(url)
+        if cursor == "*":
+            return 200, {}, _page(
+                [_work("W50", "kept", countries=["JP"])],
+                count=2,
+                next_cursor="page2",
+            )
+        return 429, {"Retry-After": "43633"}, b'{"error":"rate"}'
+
+    part = RetrievalPartition.canary_day(country="JP", source_date=date(2022, 12, 13))
+    client = production_openalex_client(transport=transport, sleep_fn=lambda **_: None)
+    result = run_openalex_partition_backfill(
+        partition=part,
+        raw_dir=raw,
+        checkpoint_dir=ck,
+        manifests_dir=man,
+        client=client,
+        run_end_date=date(2026, 8, 30),
+    )
+    assert result.coverage_status == "partial"
+    reloaded = load_checkpoint(result.checkpoint_path)
+    assert reloaded is not None
+    assert reloaded.failure_category == "http_429"
+    assert reloaded.failure_message

@@ -111,12 +111,28 @@ class PartitionCheckpoint:
             self.exhausted = True
             self.next_cursor = None
 
+    def clear_failure_metadata_if_recovered(self) -> bool:
+        """Clear stale failure fields when current coverage is success/zero.
+
+        Returns True when metadata was present and cleared. Past failures remain
+        in historical run manifests; this only updates the current checkpoint.
+        """
+        if self.coverage_status not in {"success", "zero"}:
+            return False
+        if self.failure_category is None and self.failure_message is None:
+            return False
+        self.failure_category = None
+        self.failure_message = None
+        return True
+
     def set_coverage(self, status: QualityState | CheckpointStatus) -> None:
         if status not in QUALITY_STATES and status not in {"started", "missing"}:
             raise ValueError(f"Invalid coverage status: {status!r}")
         if status in QUALITY_STATES:
             require_quality_state(status)
         self.coverage_status = status  # type: ignore[assignment]
+        # Terminal recovery must not leave prior failure_category as current state.
+        self.clear_failure_metadata_if_recovered()
 
     def to_dict(self) -> dict[str, Any]:
         return {
