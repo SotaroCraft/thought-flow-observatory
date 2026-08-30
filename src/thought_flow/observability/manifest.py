@@ -52,7 +52,7 @@ class RunManifest:
         return asdict(self)
 
     def write(self, path: Path) -> Path:
-        from thought_flow.ingestion.openalex.atomic_io import atomic_write_text
+        from thought_flow.atomic_io import atomic_write_text
 
         text = json.dumps(self.to_dict(), indent=2, ensure_ascii=False) + "\n"
         return atomic_write_text(path, text)

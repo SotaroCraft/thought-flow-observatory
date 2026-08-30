@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from thought_flow.ingestion.openalex.atomic_io import atomic_write_text, is_temporary_sidecar
+from thought_flow.atomic_io import atomic_write_text, is_temporary_sidecar
 from thought_flow.ingestion.openalex.backfill import production_openalex_client
 from thought_flow.ingestion.openalex.campaign import (
     CampaignPlan,
@@ -418,6 +418,83 @@ def test_live_refuses_full_history_window(tmp_path: Path) -> None:
         )
 
 
+def test_live_refuses_full_history_single_country_jp(tmp_path: Path) -> None:
+    raw, ck, man = _dirs(tmp_path)
+    with pytest.raises(ValueError, match="Full-history live"):
+        run_openalex_backfill_campaign(
+            raw_dir=raw,
+            checkpoint_dir=ck,
+            manifests_dir=man,
+            live=True,
+            countries=("JP",),
+            range_start=BACKFILL_WINDOW_START,
+            range_end=FIXED_END,
+            run_end_date=FIXED_END,
+            install_signal_handlers=False,
+        )
+
+
+def test_live_refuses_full_history_single_country_us(tmp_path: Path) -> None:
+    raw, ck, man = _dirs(tmp_path)
+    with pytest.raises(ValueError, match="Full-history live"):
+        run_openalex_backfill_campaign(
+            raw_dir=raw,
+            checkpoint_dir=ck,
+            manifests_dir=man,
+            live=True,
+            countries=("US",),
+            range_start=BACKFILL_WINDOW_START,
+            range_end=FIXED_END,
+            run_end_date=FIXED_END,
+            install_signal_handlers=False,
+        )
+
+
+def test_live_allows_bounded_one_week_window(tmp_path: Path) -> None:
+    """Explicit short windows remain allowed; no network when capped to zero partitions."""
+    raw, ck, man = _dirs(tmp_path)
+
+    class _NoNetworkClient:
+        def __init__(self) -> None:
+            self.http = type("H", (), {"budget": type("B", (), {"attempts_used": 0, "reported_cost_usd": None})()})()
+
+        def fetch_works_page(self, *args: Any, **kwargs: Any) -> Any:
+            raise AssertionError("network must not be used in this unit test")
+
+    # Plan-only path via max_partitions=0 still runs live guards then caps to empty.
+    result = run_openalex_backfill_campaign(
+        raw_dir=raw,
+        checkpoint_dir=ck,
+        manifests_dir=man,
+        live=True,
+        countries=("JP",),
+        range_start=date(2022, 12, 1),
+        range_end=date(2022, 12, 7),
+        run_end_date=FIXED_END,
+        max_partitions=0,
+        client=_NoNetworkClient(),  # type: ignore[arg-type]
+        install_signal_handlers=False,
+    )
+    assert isinstance(result, CampaignResult)
+    assert result.outcome == "partial"
+    assert result.coverage.requested == 7
+    assert result.coverage.planned == 0
+    assert result.coverage.omitted_by_max_partitions == 7
+
+
+def test_dry_run_allows_full_history_plan(tmp_path: Path) -> None:
+    plan = build_campaign_plan(
+        checkpoint_dir=tmp_path / "ck",
+        run_end_date=FIXED_END,
+        countries=CAMPAIGN_COUNTRIES,
+        range_start=BACKFILL_WINDOW_START,
+        range_end=FIXED_END,
+        include_partition_list=False,
+    )
+    assert isinstance(plan, CampaignPlan)
+    assert plan.planned_partitions == 5480
+
+
 def test_live_refuses_unbounded_full_history(tmp_path: Path) -> None:
     raw, ck, man = _dirs(tmp_path)
     with pytest.raises(ValueError, match="explicit"):
@@ -475,7 +552,7 @@ def test_failed_atomic_replace_preserves_existing_checkpoint(
         raise OSError("simulated replace failure")
 
     monkeypatch.setattr(
-        "thought_flow.ingestion.openalex.atomic_io.os.replace",
+        "thought_flow.atomic_io.os.replace",
         boom_replace,
     )
     with pytest.raises(OSError, match="simulated replace failure"):

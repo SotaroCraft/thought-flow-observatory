@@ -13,7 +13,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Callable, Literal, Sequence
 
-from thought_flow.ingestion.openalex.atomic_io import atomic_write_text
+from thought_flow.atomic_io import atomic_write_text
 from thought_flow.ingestion.openalex.backfill import (
     BackfillResult,
     production_openalex_client,
@@ -240,18 +240,12 @@ def build_campaign_plan(
 
 def _is_full_history_live_request(
     *,
-    countries: Sequence[str],
     range_start: date,
     range_end: date,
     run_end_date: date,
 ) -> bool:
-    """True when live bounds equal the full authorized backfill window for all countries."""
-    country_set = {str(c).upper() for c in countries}
-    return (
-        country_set == set(CAMPAIGN_COUNTRIES)
-        and range_start == BACKFILL_WINDOW_START
-        and range_end == run_end_date
-    )
+    """True when live date bounds equal the full authorized backfill window (any country count)."""
+    return range_start == BACKFILL_WINDOW_START and range_end == run_end_date
 
 
 def _require_live_bounds(
@@ -323,14 +317,13 @@ def run_openalex_backfill_campaign(
         range_end=range_end,
     )
     if _is_full_history_live_request(
-        countries=live_countries,
         range_start=live_start,
         range_end=live_end,
         run_end_date=frozen_end,
     ):
         raise ValueError(
             "Full-history live campaign is refused in this milestone; "
-            "narrow --from-date/--to-date and/or --country, or use dry-run for the full plan"
+            "narrow --from-date/--to-date, or use dry-run for the full plan"
         )
     requested_partitions = plan_daily_partitions(
         run_end_date=frozen_end,

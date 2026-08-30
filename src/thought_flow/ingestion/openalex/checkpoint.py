@@ -185,7 +185,7 @@ def checkpoint_path(checkpoint_dir: Path, partition_id: str) -> Path:
 
 
 def load_checkpoint(path: Path) -> PartitionCheckpoint | None:
-    from thought_flow.ingestion.openalex.atomic_io import is_temporary_sidecar
+    from thought_flow.atomic_io import is_temporary_sidecar
 
     if is_temporary_sidecar(path):
         raise ValueError(f"Refusing to load temporary checkpoint sidecar as final: {path}")
@@ -198,7 +198,7 @@ def load_checkpoint(path: Path) -> PartitionCheckpoint | None:
 
 
 def save_checkpoint(path: Path, checkpoint: PartitionCheckpoint) -> Path:
-    from thought_flow.ingestion.openalex.atomic_io import atomic_write_text
+    from thought_flow.atomic_io import atomic_write_text
 
     path = Path(path)
     if path.suffix == ".tmp" or path.name.startswith("."):
