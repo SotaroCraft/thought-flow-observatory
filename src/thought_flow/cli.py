@@ -162,6 +162,14 @@ def run_m4_graph_spo_smoke(*, live: bool = False) -> int:
     return 1
 
 
+def _openalex_api_key_from_env() -> str | None:
+    """Return configured OpenAlex API key, or None. Never log the value."""
+    value = os.getenv("THOUGHT_FLOW_OPENALEX_API_KEY")
+    if value is not None and not value.strip():
+        return None
+    return value
+
+
 def run_m5_openalex_smoke(*, live: bool = False, diagnostic_cell: bool = False) -> int:
     """Run OpenAlex M5 bounded smoke. Live network only when --live is set."""
     from thought_flow.smoke.http_client import RequestBudget, SmokeHttpClient
@@ -177,9 +185,7 @@ def run_m5_openalex_smoke(*, live: bool = False, diagnostic_cell: bool = False) 
     )
     settings.ensure_directories()
     revision = _code_revision(settings.repo_root)
-    api_key = os.getenv("THOUGHT_FLOW_OPENALEX_API_KEY")
-    if api_key is not None and not api_key.strip():
-        api_key = None
+    oa_key = _openalex_api_key_from_env()
 
     if not live:
         print(
@@ -204,7 +210,7 @@ def run_m5_openalex_smoke(*, live: bool = False, diagnostic_cell: bool = False) 
         summary = run_openalex_smoke(
             data_root=settings.data_root,
             code_revision=revision,
-            api_key=api_key,
+            api_key=oa_key,
             http=SmokeHttpClient(budget=RequestBudget(), timeout_seconds=30.0),
             diagnostic_one_cell=diagnostic_cell,
         )
@@ -335,7 +341,8 @@ def run_m7_openalex_backfill_canary(
         )
         return 0
 
-    client = production_openalex_client()
+    oa_key = _openalex_api_key_from_env()
+    client = production_openalex_client(api_key=oa_key)
     result = run_openalex_partition_backfill(
         partition=partition,
         raw_dir=settings.raw_dir,
@@ -361,6 +368,7 @@ def run_m7_openalex_backfill_campaign(
     """Dry-run campaign plan by default; live requires explicit country + date bounds."""
     from datetime import date as date_cls
 
+    from thought_flow.ingestion.openalex.backfill import production_openalex_client
     from thought_flow.ingestion.openalex.campaign import (
         CampaignPlan,
         CampaignResult,
@@ -375,6 +383,8 @@ def run_m7_openalex_backfill_campaign(
     range_start = date_cls.fromisoformat(from_date) if from_date else None
     range_end = date_cls.fromisoformat(to_date) if to_date else None
     frozen_end = date_cls.fromisoformat(run_end_date) if run_end_date else None
+    oa_key = _openalex_api_key_from_env()
+    api_key_configured = bool(oa_key)
 
     if live and (not countries or range_start is None or range_end is None):
         print(
@@ -385,11 +395,16 @@ def run_m7_openalex_backfill_campaign(
                         "Live campaign requires --country and --from-date/--to-date. "
                         "Full-history live is refused."
                     ),
+                    "openalex_api_key_configured": api_key_configured,
                 },
                 indent=2,
             )
         )
         return 2
+
+    live_client = None
+    if live:
+        live_client = production_openalex_client(api_key=oa_key)
 
     try:
         result = run_openalex_backfill_campaign(
@@ -402,17 +417,31 @@ def run_m7_openalex_backfill_campaign(
             range_end=range_end,
             run_end_date=frozen_end,
             max_partitions=max_partitions,
+            client=live_client,
             code_revision=_code_revision(settings.repo_root),
         )
     except ValueError as exc:
-        print(json.dumps({"error": "invalid_campaign_request", "message": str(exc)}, indent=2))
+        print(
+            json.dumps(
+                {
+                    "error": "invalid_campaign_request",
+                    "message": str(exc),
+                    "openalex_api_key_configured": api_key_configured,
+                },
+                indent=2,
+            )
+        )
         return 2
 
     if isinstance(result, CampaignPlan):
-        print(json.dumps(result.to_public_summary(), indent=2, ensure_ascii=False))
+        summary = result.to_public_summary()
+        summary["openalex_api_key_configured"] = api_key_configured
+        print(json.dumps(summary, indent=2, ensure_ascii=False))
         return 0
     assert isinstance(result, CampaignResult)
-    print(json.dumps(result.to_public_summary(), indent=2, ensure_ascii=False))
+    summary = result.to_public_summary()
+    summary["openalex_api_key_configured"] = api_key_configured
+    print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0 if result.outcome == "succeeded" else 1
 
 

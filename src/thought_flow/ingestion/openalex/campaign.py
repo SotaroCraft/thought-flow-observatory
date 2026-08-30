@@ -133,6 +133,7 @@ class CampaignCoverage:
     started: int = 0
     partial: int = 0
     fetch_failure: int = 0
+    unattempted_due_to_stop: int = 0
     pages_completed: int = 0
     works_persisted: int = 0
     unknown_country_works: int = 0
@@ -420,13 +421,16 @@ def run_openalex_backfill_campaign(
 
     active_client = client
     had_partition_failure = False
+    source_stop = False
     try:
-        for part in partitions:
+        for part_index, part in enumerate(partitions):
             if interrupt_flag["stop"] or (should_stop is not None and should_stop()):
                 outcome = "interrupted"
                 interruption_category = interruption_category or (
                     "SIGINT" if interrupt_flag["stop"] else "interrupt"
                 )
+                remaining = partitions[part_index:]
+                coverage.unattempted_due_to_stop = len(remaining)
                 break
 
             ck = load_checkpoint(checkpoint_path(checkpoint_dir, part.partition_id))
@@ -467,10 +471,13 @@ def run_openalex_backfill_campaign(
             except Exception as exc:  # noqa: BLE001
                 coverage.fetch_failure += 1
                 had_partition_failure = True
+                source_stop = True
                 failure_category = type(exc).__name__
                 failure_message = str(exc)[:500]
                 _sync_http_telemetry(coverage, active_client)
-                # Stop sequential work on hard exception; remaining are not success.
+                # Stop sequential work; do not attempt remaining partitions.
+                remaining = partitions[part_index + 1 :]
+                coverage.unattempted_due_to_stop = len(remaining)
                 break
 
             status = result.coverage_status
@@ -481,24 +488,33 @@ def run_openalex_backfill_campaign(
             elif status == "partial":
                 coverage.partial += 1
                 had_partition_failure = True
+                source_stop = True
             elif status == "fetch_failure":
                 coverage.fetch_failure += 1
                 had_partition_failure = True
+                source_stop = True
             elif status == "started":
                 coverage.started += 1
                 had_partition_failure = True
+                source_stop = True
             elif status == "missing":
                 coverage.missing += 1
+                had_partition_failure = True
+                source_stop = True
             else:
                 coverage.partial += 1
                 had_partition_failure = True
+                source_stop = True
 
             coverage.pages_completed += result.pages_completed
             coverage.works_persisted += result.works_persisted
             coverage.unknown_country_works += result.unknown_country_works
             _sync_http_telemetry(coverage, active_client)
 
-            if status in {"partial", "fetch_failure"}:
+            if status in {"partial", "fetch_failure", "started", "missing"} or status not in {
+                "success",
+                "zero",
+            }:
                 failure_category = result.failure_category or status
                 failure_message = result.failure_message
 
@@ -507,6 +523,13 @@ def run_openalex_backfill_campaign(
                 interruption_category = interruption_category or (
                     "SIGINT" if interrupt_flag["stop"] else "interrupt"
                 )
+                remaining = partitions[part_index + 1 :]
+                coverage.unattempted_due_to_stop = len(remaining)
+                break
+
+            if source_stop:
+                remaining = partitions[part_index + 1 :]
+                coverage.unattempted_due_to_stop = len(remaining)
                 break
 
             _write_campaign(final=False)
@@ -519,9 +542,12 @@ def run_openalex_backfill_campaign(
             had_partition_failure
             or coverage.partial > 0
             or coverage.fetch_failure > 0
+            or coverage.started > 0
+            or coverage.missing > 0
             or coverage.omitted_by_max_partitions > 0
+            or coverage.unattempted_due_to_stop > 0
         ):
-            # Capped runs are incomplete relative to the requested period — never success.
+            # Capped / stopped runs are incomplete relative to the requested period.
             outcome = "partial"
         else:
             outcome = "succeeded"
@@ -530,7 +556,9 @@ def run_openalex_backfill_campaign(
             coverage.partial > 0
             or coverage.fetch_failure > 0
             or coverage.started > 0
+            or coverage.missing > 0
             or coverage.omitted_by_max_partitions > 0
+            or coverage.unattempted_due_to_stop > 0
             or interruption_category
         ):
             outcome = "partial"
