@@ -36,7 +36,13 @@ from thought_flow.observability.manifest import start_manifest
 
 
 FIXED_END = date(2026, 8, 30)
+_TEST_KEY = "test-m7-key"
 
+
+@pytest.fixture(autouse=True)
+def _m7_campaign_test_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("THOUGHT_FLOW_OPENALEX_API_KEY", _TEST_KEY)
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
 
 
 def _client(tmp_path: Path, transport):
@@ -44,7 +50,7 @@ def _client(tmp_path: Path, transport):
         transport=transport,
         sleep_fn=lambda **_: None,
         data_root=tmp_path,
-        api_key="test-m7-key",
+        api_key=_TEST_KEY,
     )
 
 
@@ -466,7 +472,9 @@ def test_live_allows_bounded_one_week_window(tmp_path: Path) -> None:
 
     class _NoNetworkClient:
         def __init__(self) -> None:
-            self.api_key = "test-m7-key"
+            from thought_flow.ingestion.openalex.daily_cost_ledger import credential_ledger_id
+
+            self.api_key = _TEST_KEY
             self.http = type(
                 "H",
                 (),
@@ -474,7 +482,9 @@ def test_live_allows_bounded_one_week_window(tmp_path: Path) -> None:
                     "budget": type(
                         "B", (), {"attempts_used": 0, "reported_cost_usd": None}
                     )(),
-                    "daily_cost_guard": object(),
+                    "daily_cost_guard": type(
+                        "G", (), {"credential_id": credential_ledger_id(_TEST_KEY)}
+                    )(),
                 },
             )()
 

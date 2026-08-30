@@ -317,11 +317,6 @@ def run_m7_openalex_backfill_canary(
     )
     from thought_flow.ingestion.openalex.window import RetrievalPartition, capture_run_end_date
 
-    settings = load_settings()
-    settings.ensure_directories()
-    checkpoint_dir = settings.manifests_dir / "openalex_backfill" / "checkpoints"
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
     day = date_cls.fromisoformat(source_date) if source_date else date_cls(2022, 12, 1)
     partition = RetrievalPartition.canary_day(country=country, source_date=day)
     run_end = capture_run_end_date()
@@ -356,6 +351,11 @@ def run_m7_openalex_backfill_canary(
             )
         )
         return 2
+
+    settings = load_settings()
+    settings.ensure_directories()
+    checkpoint_dir = settings.manifests_dir / "openalex_backfill" / "checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
     client = production_openalex_client(api_key=oa_key, data_root=settings.data_root)
     result = run_openalex_partition_backfill(
         partition=partition,

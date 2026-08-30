@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import sys
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -28,6 +29,21 @@ OPENALEX_DAILY_COST_CEILING_USD = OPENALEX_DOCUMENTED_DAILY_FREE_USD_WITH_KEY  #
 
 LEDGER_SCHEMA_VERSION = "m7.openalex.daily_cost_ledger.v1"
 OPENALEX_API_KEY_ENV = "THOUGHT_FLOW_OPENALEX_API_KEY"
+MISMATCH_BLOCK_SCHEMA_VERSION = "m7.openalex.cost_model_mismatch.v1"
+MISMATCH_BLOCK_FILENAME = "cost_model_mismatch.json"
+
+_THREAD_LOCKS: dict[str, threading.Lock] = {}
+_THREAD_LOCKS_GUARD = threading.Lock()
+
+
+def _thread_lock_for(lock_path: Path) -> threading.Lock:
+    key = str(lock_path)
+    with _THREAD_LOCKS_GUARD:
+        lock = _THREAD_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _THREAD_LOCKS[key] = lock
+        return lock
 
 
 class DailyCostCeilingExceeded(RuntimeError):
@@ -121,50 +137,59 @@ class DailyCostSnapshot:
 
 @contextmanager
 def _credential_day_lock(lock_path: Path) -> Iterator[None]:
-    """Exclusive lock on a stable sidecar file (not the replaceable ledger JSON)."""
+    """Exclusive lock on a stable sidecar file (not the replaceable ledger JSON).
+
+    In-process threading lock plus cross-process file lock (msvcrt/fcntl).
+    """
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        fh = open(lock_path, "a+b")
-    except OSError as exc:
-        raise DailyCostLedgerError(f"unable to open ledger lock {lock_path}: {exc}") from exc
-    locked = False
-    try:
-        if sys.platform == "win32":
-            import msvcrt
-
-            deadline = time.monotonic() + 60.0
-            while True:
-                try:
-                    fh.seek(0)
-                    msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
-                    locked = True
-                    break
-                except OSError:
-                    if time.monotonic() >= deadline:
-                        raise DailyCostLedgerError(
-                            f"timed out acquiring ledger lock {lock_path}"
-                        )
-                    time.sleep(0.01)
-        else:
-            import fcntl
-
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
-            locked = True
-        yield
-    finally:
+    thread_lock = _thread_lock_for(lock_path)
+    with thread_lock:
         try:
-            if locked:
-                if sys.platform == "win32":
-                    import msvcrt
+            fh = open(lock_path, "a+b")
+        except OSError as exc:
+            raise DailyCostLedgerError(f"unable to open ledger lock {lock_path}: {exc}") from exc
+        locked = False
+        try:
+            # Ensure the lock region exists (msvcrt requires bytes to lock).
+            if fh.seek(0, os.SEEK_END) < 1:
+                fh.write(b"\0")
+                fh.flush()
+            if sys.platform == "win32":
+                import msvcrt
 
-                    fh.seek(0)
-                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
-                else:
-                    import fcntl
+                deadline = time.monotonic() + 60.0
+                while True:
+                    try:
+                        fh.seek(0)
+                        msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                        locked = True
+                        break
+                    except OSError:
+                        if time.monotonic() >= deadline:
+                            raise DailyCostLedgerError(
+                                f"timed out acquiring ledger lock {lock_path}"
+                            )
+                        time.sleep(0.01)
+            else:
+                import fcntl
 
-                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+                locked = True
+            yield
         finally:
-            fh.close()
+            try:
+                if locked:
+                    if sys.platform == "win32":
+                        import msvcrt
+
+                        fh.seek(0)
+                        msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                    else:
+                        import fcntl
+
+                        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            finally:
+                fh.close()
 
 
 class DailyCostGuard:
@@ -199,21 +224,38 @@ class DailyCostGuard:
         d = day or utc_billing_day(self._clock)
         return self.ledger_root / self.credential_id / f"{d.isoformat()}.lock"
 
-    def snapshot(self) -> DailyCostSnapshot:
+    def mismatch_block_path(self) -> Path:
+        """Credential-scoped sticky block (survives UTC-day rollover)."""
+        return self.ledger_root / self.credential_id / MISMATCH_BLOCK_FILENAME
+
+    def snapshot(self, *, mutate_ok: bool = True) -> DailyCostSnapshot:
         day = utc_billing_day(self._clock)
-        with _credential_day_lock(self.lock_path(day)):
+        if mutate_ok:
+            with _credential_day_lock(self.lock_path(day)):
+                data = self._read_ledger(day)
+                blocked = self._mismatch_blocked_unlocked()
+        else:
+            # Dry-run / read-only: never create lock files or directories.
             data = self._read_ledger(day)
-        return self._snapshot_from_data(day, data)
+            blocked = self._mismatch_blocked_unlocked()
+        snap = self._snapshot_from_data(day, data)
+        if blocked:
+            snap.cost_model_mismatch = True
+            snap.live_block_reason = "cost_model_mismatch"
+        return snap
+
+    def snapshot_readonly(self) -> DailyCostSnapshot:
+        return self.snapshot(mutate_ok=False)
 
     def would_allow_next_attempt(self) -> bool:
-        return self.snapshot().live_execution_permitted
+        return self.snapshot(mutate_ok=False).live_execution_permitted
 
     def raise_if_next_attempt_blocked(self) -> None:
         """Peek-only ceiling / mismatch check for between-date stops (no reservation)."""
-        snap = self.snapshot()
+        snap = self.snapshot(mutate_ok=False)
         if snap.cost_model_mismatch:
             raise CostModelMismatch(
-                "OpenAlex cost model mismatch blocks further HTTP on this UTC day",
+                "OpenAlex cost model mismatch blocks further HTTP for this credential",
                 source_reported_cost_usd=self.unit_cost_usd,
                 unit_cost_usd=self.unit_cost_usd,
             )
@@ -236,11 +278,21 @@ class DailyCostGuard:
         """Atomically reserve unit cost before HTTP. Returns reservation_id."""
         day = utc_billing_day(self._clock)
         with _credential_day_lock(self.lock_path(day)):
+            if self._mismatch_blocked_unlocked():
+                raise CostModelMismatch(
+                    "OpenAlex cost model mismatch blocks further HTTP for this credential",
+                    source_reported_cost_usd=self.unit_cost_usd,
+                    unit_cost_usd=self.unit_cost_usd,
+                )
             path = self.ledger_path(day)
             data = self._read_ledger(day)
             if data.get("cost_model_mismatch"):
+                self._write_mismatch_block_unlocked(
+                    source_reported_cost_usd=self.unit_cost_usd,
+                    reservation_id=None,
+                )
                 raise CostModelMismatch(
-                    "OpenAlex cost model mismatch blocks further HTTP on this UTC day",
+                    "OpenAlex cost model mismatch blocks further HTTP for this credential",
                     source_reported_cost_usd=self.unit_cost_usd,
                     unit_cost_usd=self.unit_cost_usd,
                 )
@@ -326,6 +378,10 @@ class DailyCostGuard:
                     entry["cost_model_mismatch"] = True
                     try:
                         self._write_ledger(path, data)
+                        self._write_mismatch_block_unlocked(
+                            source_reported_cost_usd=source,
+                            reservation_id=str(entry.get("reservation_id") or ""),
+                        )
                     except OSError as exc:
                         raise DailyCostLedgerError(
                             f"unable to write ledger {path}: {exc}"
@@ -347,6 +403,28 @@ class DailyCostGuard:
                 self._write_ledger(path, data)
             except OSError as exc:
                 raise DailyCostLedgerError(f"unable to write ledger {path}: {exc}") from exc
+
+    def _mismatch_blocked_unlocked(self) -> bool:
+        return self.mismatch_block_path().exists()
+
+    def _write_mismatch_block_unlocked(
+        self,
+        *,
+        source_reported_cost_usd: float,
+        reservation_id: str | None,
+    ) -> None:
+        path = self.mismatch_block_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema_version": MISMATCH_BLOCK_SCHEMA_VERSION,
+            "credential_id": self.credential_id,
+            "recorded_at": _utc_now_iso(self._clock),
+            "source_reported_cost_usd": source_reported_cost_usd,
+            "unit_cost_usd": self.unit_cost_usd,
+            "reservation_id": reservation_id,
+            "clears_automatically": False,
+        }
+        atomic_write_text(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
     def _find_reservation(
         self, data: dict[str, Any], reservation_id: str | None

@@ -53,8 +53,6 @@ FAILURE_DAILY_COST_CEILING = "daily_cost_ceiling"
 FAILURE_COST_MODEL_MISMATCH = "cost_model_mismatch"
 # Keep ephemeral test ledger roots alive for the process lifetime.
 _EPHEMERAL_LEDGER_ROOTS: list[Path] = []
-# Synthetic non-secret marker for transport/http doubles only (never a real credential).
-_TEST_TRANSPORT_CREDENTIAL = "test-" + "transport-double-key"
 
 
 def _utc_now_iso(clock: Callable[[], datetime] | None = None) -> str:
@@ -95,15 +93,11 @@ def production_openalex_client(
     daily_cost_guard: DailyCostGuard | None = None,
     data_root: Path | None = None,
 ) -> OpenAlexClient:
-    """Production OpenAlex client with mandatory DailyCostGuard (TFO-M7-017-PC1-R2)."""
+    """Production OpenAlex client with mandatory DailyCostGuard (TFO-M7-017-PC1-R3)."""
     import tempfile
 
     resolved_key = resolve_openalex_api_key(api_key)
     uses_test_double = transport is not None or http is not None
-    # Deterministic transport/http doubles may omit env key; never invent a key for
-    # the real-network production path (live campaign still rejects keyless).
-    if resolved_key is None and uses_test_double:
-        resolved_key = _TEST_TRANSPORT_CREDENTIAL
     if data_root is None:
         if uses_test_double:
             root = Path(tempfile.mkdtemp(prefix="tfo-oa-ledger-"))
@@ -122,9 +116,7 @@ def production_openalex_client(
         ),
         api_key=resolved_key,
     )
-    # Force the shared resolver result (OpenAlexClient also reads the same env).
     client.api_key = resolved_key
-    # In-process budget is a safety net only; durable $1 stop is DailyCostGuard.
     client.http.budget.max_attempts = _PRODUCTION_MAX_ATTEMPTS
     client.http.budget.max_cost_usd = _PRODUCTION_MAX_COST_USD
     client.http.daily_cost_guard = guard

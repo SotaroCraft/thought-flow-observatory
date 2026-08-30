@@ -279,7 +279,7 @@ def _dry_run_cost_ledger_view(checkpoint_dir: Path) -> dict[str, Any]:
         credential_id=credential_ledger_id(resolved),
     )
     try:
-        return guard.snapshot().to_public_dict()
+        return guard.snapshot_readonly().to_public_dict()
     except DailyCostLedgerError as exc:
         return {
             "error": "ledger_unreadable",
@@ -377,20 +377,29 @@ def run_openalex_backfill_campaign(
             "narrow --from-date/--to-date, or use dry-run for the full plan"
         )
 
-    # TFO-M7-017-PC1-R2: reject keyless / guardless live before any manifests or HTTP.
-    if client is not None:
-        live_credential = getattr(client, "api_key", None) or None
-    else:
-        live_credential = resolve_openalex_api_key()
-    if live_credential is None:
+    # TFO-M7-017-PC1-R3: env key is authoritative; injected clients must match exactly.
+    env_credential = resolve_openalex_api_key()
+    if env_credential is None:
         raise ValueError(
             "M7 live OpenAlex requires THOUGHT_FLOW_OPENALEX_API_KEY "
             "(keyless live is prohibited)"
         )
+    expected_cred_id = credential_ledger_id(env_credential)
     if client is not None:
+        client_key = getattr(client, "api_key", None) or None
+        if client_key != env_credential:
+            raise ValueError(
+                "M7 live client api_key must equal THOUGHT_FLOW_OPENALEX_API_KEY"
+            )
         http = getattr(client, "http", None)
-        if http is None or getattr(http, "daily_cost_guard", None) is None:
+        guard = getattr(http, "daily_cost_guard", None) if http is not None else None
+        if guard is None:
             raise ValueError("M7 live requires DailyCostGuard on the OpenAlex client")
+        if getattr(guard, "credential_id", None) != expected_cred_id:
+            raise ValueError(
+                "M7 live DailyCostGuard credential_id must match resolved API key"
+            )
+    live_credential = env_credential
 
     requested_partitions = plan_daily_partitions(
         run_end_date=frozen_end,

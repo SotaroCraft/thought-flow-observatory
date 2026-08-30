@@ -29,12 +29,19 @@ from thought_flow.ingestion.openalex.window import RetrievalPartition
 
 
 FIXED = datetime(2026, 8, 30, 12, 0, 0, tzinfo=UTC)
+_TEST_KEY = "test-key"
+
+
+@pytest.fixture(autouse=True)
+def _m7_cost_test_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("THOUGHT_FLOW_OPENALEX_API_KEY", _TEST_KEY)
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
 
 
 def _guard(tmp_path: Path, *, spent: float = 0.0, clock_day: datetime = FIXED) -> DailyCostGuard:
     guard = DailyCostGuard(
         ledger_root=tmp_path / "ledger",
-        credential_id="test_cred",
+        credential_id=credential_ledger_id(_TEST_KEY),
         clock=lambda: clock_day,
     )
     if spent > 0:
@@ -45,7 +52,7 @@ def _guard(tmp_path: Path, *, spent: float = 0.0, clock_day: datetime = FIXED) -
                 {
                     "schema_version": "m7.openalex.daily_cost_ledger.v1",
                     "utc_date": clock_day.date().isoformat(),
-                    "credential_id": "test_cred",
+                    "credential_id": credential_ledger_id(_TEST_KEY),
                     "accumulated_usd": spent,
                     "attempt_count": int(round(spent / OPENALEX_BILLABLE_ATTEMPT_COST_USD)),
                     "cost_model_mismatch": False,
@@ -123,7 +130,7 @@ def test_process_restart_does_not_reset_same_day_usage(tmp_path: Path) -> None:
     g1.authorize_next_attempt()
     g2 = DailyCostGuard(
         ledger_root=tmp_path / "ledger",
-        credential_id="test_cred",
+        credential_id=credential_ledger_id(_TEST_KEY),
         clock=lambda: FIXED,
     )
     assert g2.snapshot().accumulated_usd == pytest.approx(OPENALEX_BILLABLE_ATTEMPT_COST_USD)
@@ -141,7 +148,7 @@ def test_utc_day_rollover_permits_resume(tmp_path: Path) -> None:
         g1.authorize_next_attempt()
     g2 = DailyCostGuard(
         ledger_root=tmp_path / "ledger",
-        credential_id="test_cred",
+        credential_id=credential_ledger_id(_TEST_KEY),
         clock=lambda: day2,
     )
     assert g2.snapshot().accumulated_usd == 0.0
@@ -161,10 +168,14 @@ def test_unreadable_ledger_fails_closed(tmp_path: Path) -> None:
 def test_dry_run_no_network_no_ledger_write(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("THOUGHT_FLOW_OPENALEX_API_KEY", raising=False)
-    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    monkeypatch.setenv("THOUGHT_FLOW_OPENALEX_API_KEY", _TEST_KEY)
     ck = tmp_path / "manifests" / "openalex_backfill" / "checkpoints"
     ck.mkdir(parents=True)
+
+    def _tree() -> set[str]:
+        return {str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*")}
+
+    before = _tree()
     plan = build_campaign_plan(
         checkpoint_dir=ck,
         run_end_date=date(2026, 8, 30),
@@ -172,14 +183,35 @@ def test_dry_run_no_network_no_ledger_write(
         range_start=date(2022, 12, 1),
         range_end=date(2022, 12, 1),
     )
+    after = _tree()
     summary = plan.to_public_summary()
     assert summary["network_access"] is False
     assert summary["writes_raw_or_checkpoint"] is False
     assert summary["daily_cost_ceiling_usd"] == OPENALEX_DAILY_COST_CEILING_USD
-    assert summary["daily_cost_ledger"]["live_execution_permitted"] is False
-    assert summary["daily_cost_ledger"]["reason"] == "api_key_missing"
-    ledger_root = tmp_path / "manifests" / "openalex_backfill" / "daily_cost_ledger"
-    assert not ledger_root.exists() or not any(ledger_root.rglob("*.json"))
+    assert "live_execution_permitted" in summary["daily_cost_ledger"]
+    assert after == before
+
+
+def test_dry_run_missing_key_reports_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("THOUGHT_FLOW_OPENALEX_API_KEY", raising=False)
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+    ck = tmp_path / "manifests" / "openalex_backfill" / "checkpoints"
+    ck.mkdir(parents=True)
+    before = {str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*")}
+    plan = build_campaign_plan(
+        checkpoint_dir=ck,
+        run_end_date=date(2026, 8, 30),
+        countries=["US"],
+        range_start=date(2022, 12, 1),
+        range_end=date(2022, 12, 1),
+    )
+    after = {str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*")}
+    assert after == before
+    assert plan.daily_cost_ledger is not None
+    assert plan.daily_cost_ledger["live_execution_permitted"] is False
+    assert plan.daily_cost_ledger["reason"] == "api_key_missing"
 
 
 def test_mid_date_cost_stop_keeps_partial_cursor(tmp_path: Path) -> None:
@@ -202,7 +234,7 @@ def test_mid_date_cost_stop_keeps_partial_cursor(tmp_path: Path) -> None:
         sleep_fn=lambda **_: None,
         daily_cost_guard=guard,
         data_root=tmp_path,
-        api_key="test-key",
+        api_key=_TEST_KEY,
     )
     raw = tmp_path / "raw"
     ck = tmp_path / "ck"
@@ -253,7 +285,7 @@ def test_authorize_reserves_before_http_survives_missing_record(tmp_path: Path) 
     assert guard.snapshot().accumulated_usd == pytest.approx(OPENALEX_BILLABLE_ATTEMPT_COST_USD)
     restarted = DailyCostGuard(
         ledger_root=tmp_path / "ledger",
-        credential_id="test_cred",
+        credential_id=credential_ledger_id(_TEST_KEY),
         clock=lambda: FIXED,
     )
     assert restarted.snapshot().accumulated_usd == pytest.approx(OPENALEX_BILLABLE_ATTEMPT_COST_USD)
@@ -291,7 +323,7 @@ def test_between_date_cost_stop_leaves_next_day_unattempted(tmp_path: Path) -> N
         sleep_fn=lambda **_: None,
         daily_cost_guard=guard,
         data_root=tmp_path,
-        api_key="test-key",
+        api_key=_TEST_KEY,
     )
     raw = tmp_path / "raw"
     ck = tmp_path / "ck"
@@ -339,7 +371,7 @@ def test_zero_page_cost_stop_keeps_started_not_fetch_failure(tmp_path: Path) -> 
         sleep_fn=lambda **_: None,
         daily_cost_guard=guard,
         data_root=tmp_path,
-        api_key="test-key",
+        api_key=_TEST_KEY,
     )
     raw = tmp_path / "raw"
     ck = tmp_path / "ck"
@@ -373,7 +405,7 @@ def test_concurrent_reservations_both_retained(tmp_path: Path) -> None:
     results: list[str] = []
 
     def worker() -> None:
-        g = DailyCostGuard(ledger_root=root, credential_id="test_cred", clock=lambda: FIXED)
+        g = DailyCostGuard(ledger_root=root, credential_id=credential_ledger_id(_TEST_KEY), clock=lambda: FIXED)
         barrier.wait()
         try:
             g.authorize_next_attempt()
@@ -387,7 +419,7 @@ def test_concurrent_reservations_both_retained(tmp_path: Path) -> None:
     t2.start()
     t1.join()
     t2.join()
-    snap = DailyCostGuard(ledger_root=root, credential_id="test_cred", clock=lambda: FIXED).snapshot()
+    snap = DailyCostGuard(ledger_root=root, credential_id=credential_ledger_id(_TEST_KEY), clock=lambda: FIXED).snapshot()
     assert results.count("ok") == 2
     assert snap.attempt_count == 2
     assert snap.accumulated_usd == pytest.approx(0.0002)
@@ -399,11 +431,12 @@ def test_concurrent_final_unit_only_one_wins(tmp_path: Path) -> None:
         spent=OPENALEX_DAILY_COST_CEILING_USD - OPENALEX_BILLABLE_ATTEMPT_COST_USD,
     )
     root = tmp_path / "ledger"
+    cred = guard.credential_id
     barrier = threading.Barrier(2)
     results: list[str] = []
 
     def worker() -> None:
-        g = DailyCostGuard(ledger_root=root, credential_id="test_cred", clock=lambda: FIXED)
+        g = DailyCostGuard(ledger_root=root, credential_id=cred, clock=lambda: FIXED)
         barrier.wait()
         try:
             g.authorize_next_attempt()
@@ -417,7 +450,7 @@ def test_concurrent_final_unit_only_one_wins(tmp_path: Path) -> None:
     t2.start()
     t1.join()
     t2.join()
-    snap = DailyCostGuard(ledger_root=root, credential_id="test_cred", clock=lambda: FIXED).snapshot()
+    snap = DailyCostGuard(ledger_root=root, credential_id=cred, clock=lambda: FIXED).snapshot()
     assert results.count("ok") == 1
     assert results.count("blocked") == 1
     assert snap.attempt_count == int(OPENALEX_DAILY_COST_CEILING_USD / OPENALEX_BILLABLE_ATTEMPT_COST_USD)
@@ -456,11 +489,14 @@ def test_custom_transport_keeps_guard(tmp_path: Path) -> None:
     assert client.http.daily_cost_guard is not None
 
 
-def test_guardless_injected_live_client_rejected(tmp_path: Path) -> None:
+def test_guardless_injected_live_client_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from thought_flow.ingestion.openalex.campaign import run_openalex_backfill_campaign
     from thought_flow.smoke.http_client import SmokeHttpClient
     from thought_flow.smoke.openalex.client import OpenAlexClient
 
+    monkeypatch.setenv("THOUGHT_FLOW_OPENALEX_API_KEY", "k")
     client = OpenAlexClient(http=SmokeHttpClient(), api_key="k")
     assert client.http.daily_cost_guard is None
     with pytest.raises(ValueError, match="DailyCostGuard"):
@@ -476,6 +512,75 @@ def test_guardless_injected_live_client_rejected(tmp_path: Path) -> None:
             client=client,
             install_signal_handlers=False,
         )
+
+
+def test_injected_key_mismatch_blocks_before_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from thought_flow.ingestion.openalex.campaign import run_openalex_backfill_campaign
+
+    monkeypatch.setenv("THOUGHT_FLOW_OPENALEX_API_KEY", "env-key-value")
+    client = production_openalex_client(
+        transport=lambda u, h, t: (_ for _ in ()).throw(AssertionError("no HTTP")),
+        sleep_fn=lambda **_: None,
+        data_root=tmp_path,
+        api_key="other-key-value",
+    )
+    man = tmp_path / "man"
+    man.mkdir()
+    with pytest.raises(ValueError, match="must equal"):
+        run_openalex_backfill_campaign(
+            raw_dir=tmp_path / "raw",
+            checkpoint_dir=tmp_path / "ck",
+            manifests_dir=man,
+            live=True,
+            countries=("US",),
+            range_start=date(2022, 12, 1),
+            range_end=date(2022, 12, 1),
+            run_end_date=date(2026, 8, 30),
+            client=client,
+            install_signal_handlers=False,
+        )
+    assert not list(man.rglob("*.json"))
+
+
+def test_no_synthetic_transport_credential_in_production_code() -> None:
+    from thought_flow.ingestion.openalex import backfill as bf
+
+    assert not hasattr(bf, "_TEST_TRANSPORT_CREDENTIAL")
+    assert not hasattr(bf, "_TEST_TRANSPORT_API_KEY")
+
+
+def test_cost_model_mismatch_survives_utc_rollover(tmp_path: Path) -> None:
+    day1 = datetime(2026, 8, 30, 12, 0, 0, tzinfo=UTC)
+    day2 = datetime(2026, 8, 31, 1, 0, 0, tzinfo=UTC)
+    g1 = _guard(tmp_path, spent=0.0, clock_day=day1)
+    rid = g1.authorize_next_attempt()
+    with pytest.raises(CostModelMismatch):
+        g1.record_billable_attempt(source_reported_cost_usd=0.001, reservation_id=rid)
+    assert g1.mismatch_block_path().exists()
+    g2 = DailyCostGuard(
+        ledger_root=tmp_path / "ledger",
+        credential_id=credential_ledger_id(_TEST_KEY),
+        clock=lambda: day2,
+    )
+    assert g2.snapshot_readonly().live_execution_permitted is False
+    with pytest.raises(CostModelMismatch):
+        g2.authorize_next_attempt()
+
+
+def test_unit_network_deny_blocks_urllib() -> None:
+    import urllib.request
+
+    with pytest.raises(RuntimeError, match="UNIT_TEST_NETWORK_DENIED"):
+        urllib.request.urlopen("https://example.test/")
+
+
+def test_unit_network_deny_blocks_socket() -> None:
+    import socket
+
+    with pytest.raises(RuntimeError, match="UNIT_TEST_NETWORK_DENIED"):
+        socket.create_connection(("127.0.0.1", 9), timeout=0.1)
 
 
 def test_missing_key_blocks_live_before_manifest(
