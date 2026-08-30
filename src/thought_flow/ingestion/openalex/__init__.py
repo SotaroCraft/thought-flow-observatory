@@ -9,7 +9,14 @@ from thought_flow.ingestion.openalex.backfill import (
     OpenAlexBackfillRunner,
     run_openalex_partition_backfill,
 )
+from thought_flow.ingestion.openalex.campaign import (
+    CampaignPlan,
+    CampaignResult,
+    build_campaign_plan,
+    run_openalex_backfill_campaign,
+)
 from thought_flow.ingestion.openalex.checkpoint import PartitionCheckpoint
+from thought_flow.ingestion.openalex.planner import CAMPAIGN_COUNTRIES, plan_daily_partitions
 from thought_flow.ingestion.openalex.window import (
     BACKFILL_WINDOW_START,
     RetrievalPartition,
@@ -18,10 +25,16 @@ from thought_flow.ingestion.openalex.window import (
 
 __all__ = [
     "BACKFILL_WINDOW_START",
+    "CAMPAIGN_COUNTRIES",
     "BackfillResult",
+    "CampaignPlan",
+    "CampaignResult",
     "OpenAlexBackfillRunner",
     "PartitionCheckpoint",
     "RetrievalPartition",
+    "build_campaign_plan",
     "capture_run_end_date",
+    "plan_daily_partitions",
+    "run_openalex_backfill_campaign",
     "run_openalex_partition_backfill",
 ]

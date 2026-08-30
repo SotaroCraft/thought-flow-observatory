@@ -185,6 +185,10 @@ def checkpoint_path(checkpoint_dir: Path, partition_id: str) -> Path:
 
 
 def load_checkpoint(path: Path) -> PartitionCheckpoint | None:
+    from thought_flow.atomic_io import is_temporary_sidecar
+
+    if is_temporary_sidecar(path):
+        raise ValueError(f"Refusing to load temporary checkpoint sidecar as final: {path}")
     if not path.is_file():
         return None
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -194,9 +198,10 @@ def load_checkpoint(path: Path) -> PartitionCheckpoint | None:
 
 
 def save_checkpoint(path: Path, checkpoint: PartitionCheckpoint) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(checkpoint.to_dict(), indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    return path
+    from thought_flow.atomic_io import atomic_write_text
+
+    path = Path(path)
+    if path.suffix == ".tmp" or path.name.startswith("."):
+        raise ValueError(f"Refusing to publish checkpoint to temporary path: {path}")
+    text = json.dumps(checkpoint.to_dict(), indent=2, ensure_ascii=False) + "\n"
+    return atomic_write_text(path, text)
