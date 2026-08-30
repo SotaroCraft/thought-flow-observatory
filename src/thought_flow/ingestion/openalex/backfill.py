@@ -82,6 +82,15 @@ def production_openalex_client(
     return client
 
 
+def last_nonnull_source_reported_count(pages: list[CompletedPage]) -> int | None:
+    """Prefer the last completed page's source_count (deterministic across drift)."""
+    last: int | None = None
+    for page in pages:
+        if page.source_count is not None:
+            last = int(page.source_count)
+    return last
+
+
 def classify_partition_coverage(
     *,
     attempted: bool,
@@ -253,10 +262,7 @@ class OpenAlexBackfillRunner:
         collected_ids: list[str] = [
             cid for page in checkpoint.pages for cid in page.raw_content_identities
         ]
-        source_reported_count: int | None = next(
-            (p.source_count for p in checkpoint.pages if p.source_count is not None),
-            None,
-        )
+        source_reported_count: int | None = last_nonnull_source_reported_count(checkpoint.pages)
         fetch_failed = False
         failure_category: str | None = None
         failure_message: str | None = None
@@ -269,6 +275,33 @@ class OpenAlexBackfillRunner:
                 if checkpoint.clear_failure_metadata_if_recovered():
                     checkpoint.last_run_identity = run_id
                     checkpoint_dirty = True
+            elif checkpoint.exhausted:
+                # Exhausted journals are fail-closed: reclassify from page source_count
+                # without HTTP. Never drop source_reported_count to None and promote.
+                coverage = classify_partition_coverage(
+                    attempted=True,
+                    pages_completed=checkpoint.pages_completed,
+                    exhausted=True,
+                    fetch_failed=False,
+                    works_count=checkpoint.works_persisted,
+                    source_reported_count=source_reported_count,
+                )
+                if (
+                    coverage == "partial"
+                    and source_reported_count is not None
+                    and checkpoint.works_persisted < int(source_reported_count)
+                ):
+                    failure_category = "source_count_mismatch"
+                    failure_message = (
+                        f"works_persisted={checkpoint.works_persisted} < "
+                        f"source_reported_count={source_reported_count}"
+                    )
+                if checkpoint.coverage_status != coverage:
+                    checkpoint.set_coverage(coverage)
+                    checkpoint.last_run_identity = run_id
+                    checkpoint_dirty = True
+                # No-progress reclassify of an already-partial exhausted journal must
+                # not rewrite the checkpoint (SHA stability).
             else:
                 checkpoint.last_run_identity = run_id
                 checkpoint_dirty = True
@@ -299,6 +332,17 @@ class OpenAlexBackfillRunner:
                     works_count=checkpoint.works_persisted,
                     source_reported_count=source_reported_count,
                 )
+                if (
+                    coverage == "partial"
+                    and not fetch_failed
+                    and source_reported_count is not None
+                    and checkpoint.works_persisted < int(source_reported_count)
+                ):
+                    failure_category = failure_category or "source_count_mismatch"
+                    failure_message = failure_message or (
+                        f"works_persisted={checkpoint.works_persisted} < "
+                        f"source_reported_count={source_reported_count}"
+                    )
                 checkpoint.set_coverage(coverage)
         except Exception as exc:  # noqa: BLE001 — recorded as fetch_failure / partial
             checkpoint.last_run_identity = run_id
@@ -379,7 +423,7 @@ class OpenAlexBackfillRunner:
     ) -> tuple[QualityState, int, list[str], int | None, bool]:
         works_content_new = 0
         collected_ids: list[str] = []
-        source_reported_count: int | None = None
+        source_reported_count: int | None = last_nonnull_source_reported_count(checkpoint.pages)
         cursor: str | None = checkpoint.next_cursor if not checkpoint.exhausted else None
         if cursor is None and not checkpoint.exhausted:
             cursor = "*"
