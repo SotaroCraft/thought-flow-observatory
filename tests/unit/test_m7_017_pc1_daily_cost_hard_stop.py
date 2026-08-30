@@ -143,8 +143,9 @@ def test_utc_day_rollover_permits_resume(tmp_path: Path) -> None:
         credential_id="test_cred",
         clock=lambda: day2,
     )
-    g2.authorize_next_attempt()
     assert g2.snapshot().accumulated_usd == 0.0
+    g2.authorize_next_attempt()  # reserves unit on the new UTC day
+    assert g2.snapshot().accumulated_usd == pytest.approx(OPENALEX_BILLABLE_ATTEMPT_COST_USD)
 
 
 def test_unreadable_ledger_fails_closed(tmp_path: Path) -> None:
@@ -236,3 +237,133 @@ def test_credential_id_stable_and_non_secret() -> None:
     assert a == b
     assert "secret-key" not in a
     assert credential_ledger_id(None) == "keyless"
+
+
+def test_production_inprocess_budget_does_not_share_daily_ceiling() -> None:
+    """RequestBudget must stay above $1 so DailyCostGuard owns the stop reason."""
+    client = production_http_client(sleep_fn=lambda **_: None)
+    assert client.budget.max_cost_usd > OPENALEX_DAILY_COST_CEILING_USD
+
+
+def test_authorize_reserves_before_http_survives_missing_record(tmp_path: Path) -> None:
+    """Crash between authorize and record must not reset same-day usage."""
+    guard = _guard(tmp_path, spent=0.0)
+    guard.authorize_next_attempt()
+    assert guard.snapshot().accumulated_usd == pytest.approx(OPENALEX_BILLABLE_ATTEMPT_COST_USD)
+    # Simulate process restart without record_billable_attempt.
+    restarted = DailyCostGuard(
+        ledger_root=tmp_path / "ledger",
+        credential_id="test_cred",
+        clock=lambda: FIXED,
+    )
+    assert restarted.snapshot().accumulated_usd == pytest.approx(OPENALEX_BILLABLE_ATTEMPT_COST_USD)
+    assert restarted.snapshot().attempt_count == 1
+
+
+def test_between_date_cost_stop_leaves_next_day_unattempted(tmp_path: Path) -> None:
+    from thought_flow.ingestion.openalex.campaign import (
+        CampaignResult,
+        run_openalex_backfill_campaign,
+    )
+    from thought_flow.ingestion.openalex.checkpoint import checkpoint_path
+
+    guard = _guard(
+        tmp_path,
+        spent=OPENALEX_DAILY_COST_CEILING_USD - OPENALEX_BILLABLE_ATTEMPT_COST_USD,
+    )
+    calls = {"n": 0}
+
+    def transport(url: str, headers: dict[str, str], timeout: float):
+        calls["n"] += 1
+        body = {
+            "meta": {"count": 1, "next_cursor": None},
+            "results": [
+                {
+                    "id": "https://openalex.org/W1",
+                    "authorships": [{"institutions": [{"country_code": "US"}]}],
+                }
+            ],
+        }
+        return 200, {"X-API-Cost": "0.0001"}, json.dumps(body).encode()
+
+    client = production_openalex_client(
+        transport=transport,
+        sleep_fn=lambda **_: None,
+        daily_cost_guard=guard,
+        enable_daily_cost_guard=True,
+        api_key="test-key",
+    )
+    raw = tmp_path / "raw"
+    ck = tmp_path / "ck"
+    man = tmp_path / "man"
+    raw.mkdir()
+    ck.mkdir()
+    man.mkdir()
+    result = run_openalex_backfill_campaign(
+        raw_dir=raw,
+        checkpoint_dir=ck,
+        manifests_dir=man,
+        live=True,
+        countries=("US",),
+        range_start=date(2022, 12, 1),
+        range_end=date(2022, 12, 2),
+        run_end_date=date(2026, 8, 30),
+        client=client,
+        install_signal_handlers=False,
+        clock=lambda: FIXED,
+    )
+    assert isinstance(result, CampaignResult)
+    assert result.coverage.attempted == 1
+    assert result.coverage.success + result.coverage.zero + result.coverage.partial >= 1
+    assert result.coverage.unattempted_due_to_stop == 1
+    assert result.failure_category == FAILURE_DAILY_COST_CEILING
+    day2 = RetrievalPartition(
+        country="US", inclusive_start=date(2022, 12, 2), inclusive_end=date(2022, 12, 2)
+    )
+    assert not checkpoint_path(ck, day2.partition_id).exists()
+    assert calls["n"] == 1
+
+
+def test_zero_page_cost_stop_keeps_started_not_fetch_failure(tmp_path: Path) -> None:
+    from thought_flow.ingestion.openalex.backfill import run_openalex_partition_backfill
+    from thought_flow.ingestion.openalex.checkpoint import checkpoint_path, load_checkpoint
+
+    guard = _guard(tmp_path, spent=OPENALEX_DAILY_COST_CEILING_USD)
+    calls = {"n": 0}
+
+    def transport(url: str, headers: dict[str, str], timeout: float):
+        calls["n"] += 1
+        return 200, {"X-API-Cost": "0.0001"}, b"{}"
+
+    client = production_openalex_client(
+        transport=transport,
+        sleep_fn=lambda **_: None,
+        daily_cost_guard=guard,
+        enable_daily_cost_guard=True,
+        api_key="test-key",
+    )
+    raw = tmp_path / "raw"
+    ck = tmp_path / "ck"
+    man = tmp_path / "man"
+    raw.mkdir()
+    ck.mkdir()
+    man.mkdir()
+    part = RetrievalPartition(
+        country="US", inclusive_start=date(2022, 12, 1), inclusive_end=date(2022, 12, 1)
+    )
+    result = run_openalex_partition_backfill(
+        partition=part,
+        raw_dir=raw,
+        checkpoint_dir=ck,
+        manifests_dir=man,
+        client=client,
+        code_revision="test",
+        run_end_date=date(2026, 8, 30),
+    )
+    assert result.coverage_status == "started"
+    assert result.failure_category == FAILURE_DAILY_COST_CEILING
+    assert calls["n"] == 0
+    saved = load_checkpoint(checkpoint_path(ck, part.partition_id))
+    assert saved is not None
+    assert saved.coverage_status == "started"
+    assert saved.failure_category == FAILURE_DAILY_COST_CEILING

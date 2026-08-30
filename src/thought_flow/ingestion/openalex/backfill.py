@@ -43,9 +43,11 @@ from thought_flow.smoke.quality import QualityState, page_query_quality_state
 SOURCE_IDENTITY = "openalex.works"
 # Production page size. Smoke PER_PAGE=25 ceilings are intentionally unused.
 PRODUCTION_PER_PAGE = 200
-# In-process attempt bound remains high; UTC-day $1 hard stop is the DailyCostGuard.
+# In-process attempt/cost bounds stay high; UTC-day $1 hard stop is DailyCostGuard only.
+# RequestBudget must NOT share the $1 ceiling — it would preempt the guard and mislabel
+# stops as RuntimeError/cost_ceiling instead of daily_cost_ceiling (TFO-M7-017-PC1).
 _PRODUCTION_MAX_ATTEMPTS = 1_000_000
-_PRODUCTION_MAX_COST_USD = OPENALEX_DAILY_COST_CEILING_USD
+_PRODUCTION_MAX_COST_USD = 1_000_000.0
 FAILURE_DAILY_COST_CEILING = "daily_cost_ceiling"
 
 
@@ -111,7 +113,7 @@ def production_openalex_client(
         ),
         api_key=resolved_key,
     )
-    # Keep in-process ceiling aligned with the daily hard stop; ledger spans runs.
+    # In-process budget is a safety net only; durable $1 stop is DailyCostGuard.
     client.http.budget.max_attempts = _PRODUCTION_MAX_ATTEMPTS
     client.http.budget.max_cost_usd = _PRODUCTION_MAX_COST_USD
     if guard is not None and client.http.daily_cost_guard is None:
@@ -369,6 +371,12 @@ class OpenAlexBackfillRunner:
                     works_count=checkpoint.works_persisted,
                     source_reported_count=source_reported_count,
                 )
+                # Cost-ceiling stops are nonterminal governed states, not fetch_failure.
+                if failure_category == FAILURE_DAILY_COST_CEILING and _cov in {
+                    "started",
+                    "partial",
+                }:
+                    coverage = _cov
                 if (
                     coverage == "partial"
                     and not fetch_failed

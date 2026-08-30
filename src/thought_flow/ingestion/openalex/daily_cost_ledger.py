@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from thought_flow.atomic_io import atomic_write_text
 from thought_flow.smoke.http_client import OPENALEX_DOCUMENTED_DAILY_FREE_USD_WITH_KEY
 
 # Authoritative billable-attempt projection / accounting unit used when a source
@@ -106,6 +106,8 @@ class DailyCostGuard:
         self.ceiling_usd = float(ceiling_usd)
         self.unit_cost_usd = float(unit_cost_usd)
         self._clock = clock
+        # True after authorize reserved unit cost pending record_billable_attempt.
+        self._pending_reservation = False
 
     def ledger_path(self, day: date | None = None) -> Path:
         d = day or utc_billing_day(self._clock)
@@ -123,8 +125,13 @@ class DailyCostGuard:
             unit_cost_usd=self.unit_cost_usd,
         )
 
-    def authorize_next_attempt(self) -> None:
-        """Fail closed before HTTP if the next billable attempt would exceed the ceiling."""
+    def would_allow_next_attempt(self) -> bool:
+        """Peek whether the next billable attempt fits under the ceiling (no mutation)."""
+        snap = self.snapshot()
+        return (snap.accumulated_usd + self.unit_cost_usd) <= self.ceiling_usd + 1e-15
+
+    def raise_if_next_attempt_blocked(self) -> None:
+        """Peek-only ceiling check for between-date campaign stops (no ledger reservation)."""
         snap = self.snapshot()
         projected = snap.accumulated_usd + self.unit_cost_usd
         if projected > self.ceiling_usd + 1e-15:
@@ -141,19 +148,93 @@ class DailyCostGuard:
                 projected_usd=projected,
             )
 
-    def record_billable_attempt(self, *, source_reported_cost_usd: float | None) -> None:
-        """Persist spend for one billable attempt (including retries)."""
-        if source_reported_cost_usd is None:
-            cost = self.unit_cost_usd
-        else:
-            if not _finite_nonneg(source_reported_cost_usd):
-                raise DailyCostLedgerError(
-                    f"unusable source-reported cost {source_reported_cost_usd!r}; fail closed"
-                )
-            cost = float(source_reported_cost_usd)
+    def authorize_next_attempt(self) -> None:
+        """Reserve unit cost before HTTP so crash/restart cannot drop the attempt.
+
+        Persists the projected unit immediately; ``record_billable_attempt`` then
+        adjusts to source-reported cost when known (never double-counts the unit).
+        """
         day = utc_billing_day(self._clock)
         path = self.ledger_path(day)
         data = self._read_ledger(day)
+        accumulated = float(data["accumulated_usd"])
+        projected = accumulated + self.unit_cost_usd
+        if projected > self.ceiling_usd + 1e-15:
+            raise DailyCostCeilingExceeded(
+                (
+                    f"OpenAlex daily cost ceiling would be exceeded: "
+                    f"accumulated={accumulated:.6f} "
+                    f"next={self.unit_cost_usd:.6f} "
+                    f"projected={projected:.6f} "
+                    f"ceiling={self.ceiling_usd:.6f} "
+                    f"utc_date={day.isoformat()}"
+                ),
+                accumulated_usd=accumulated,
+                projected_usd=projected,
+            )
+        data["accumulated_usd"] = projected
+        data["attempt_count"] = int(data["attempt_count"]) + 1
+        data["entries"].append(
+            {
+                "recorded_at": _utc_now_iso(self._clock),
+                "cost_usd": self.unit_cost_usd,
+                "source_reported": False,
+                "reserved": True,
+            }
+        )
+        self._write_ledger(path, data)
+        self._pending_reservation = True
+
+    def record_billable_attempt(self, *, source_reported_cost_usd: float | None) -> None:
+        """Persist spend for one billable attempt (including retries).
+
+        When called after ``authorize_next_attempt``, only adjusts for a known
+        source-reported cost (unit already reserved). Standalone calls (tests /
+        recovery) still append a full attempt.
+        """
+        if source_reported_cost_usd is not None and not _finite_nonneg(source_reported_cost_usd):
+            raise DailyCostLedgerError(
+                f"unusable source-reported cost {source_reported_cost_usd!r}; fail closed"
+            )
+        day = utc_billing_day(self._clock)
+        path = self.ledger_path(day)
+        data = self._read_ledger(day)
+
+        if self._pending_reservation:
+            self._pending_reservation = False
+            if source_reported_cost_usd is None:
+                return
+            source = float(source_reported_cost_usd)
+            delta = source - self.unit_cost_usd
+            if abs(delta) <= 1e-15:
+                # Mark last reservation entry as source-confirmed when present.
+                if data["entries"]:
+                    data["entries"][-1]["source_reported"] = True
+                    data["entries"][-1]["cost_usd"] = source
+                    data["entries"][-1]["reserved"] = False
+                    self._write_ledger(path, data)
+                return
+            data["accumulated_usd"] = float(data["accumulated_usd"]) + delta
+            if data["entries"]:
+                data["entries"][-1]["cost_usd"] = source
+                data["entries"][-1]["source_reported"] = True
+                data["entries"][-1]["reserved"] = False
+            else:
+                data["entries"].append(
+                    {
+                        "recorded_at": _utc_now_iso(self._clock),
+                        "cost_usd": source,
+                        "source_reported": True,
+                    }
+                )
+            self._write_ledger(path, data)
+            return
+
+        cost = (
+            self.unit_cost_usd
+            if source_reported_cost_usd is None
+            else float(source_reported_cost_usd)
+        )
         data["accumulated_usd"] = float(data["accumulated_usd"]) + cost
         data["attempt_count"] = int(data["attempt_count"]) + 1
         data["entries"].append(
@@ -211,10 +292,8 @@ class DailyCostGuard:
 
     def _write_ledger(self, path: Path, data: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(path.suffix + ".tmp")
         payload = json.dumps(data, indent=2, sort_keys=True) + "\n"
-        tmp.write_text(payload, encoding="utf-8")
-        os.replace(tmp, path)
+        atomic_write_text(path, payload)
 
 
 def default_ledger_root(data_root: Path) -> Path:

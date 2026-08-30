@@ -492,11 +492,11 @@ def run_openalex_backfill_campaign(
             if active_client is None:
                 active_client = production_openalex_client()
 
-            # Between-date cost stop: do not start the next day / leave unattempted.
+            # Between-date cost stop: peek only (no reservation); leave day unattempted.
             guard = getattr(active_client.http, "daily_cost_guard", None)
             if guard is not None:
                 try:
-                    guard.authorize_next_attempt()
+                    guard.raise_if_next_attempt_blocked()
                 except (DailyCostCeilingExceeded, DailyCostLedgerError) as exc:
                     remaining = partitions[part_index:]
                     coverage.unattempted_due_to_stop = len(remaining)
