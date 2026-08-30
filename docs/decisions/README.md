@@ -44,6 +44,12 @@ Trends acquisition ops (Transport A Human CSV; Transport B gated): [`docs/operat
 |---|---|---|
 | [`m6-methodology-freeze.md`](m6-methodology-freeze.md) | Gate A–E + data contract minimal freeze (OpenAlex + Trends Transport A); separate Canonical datasets | **FROZEN — Human approved** (`承認` 2026-08-29); TBD-008 ratified |
 
+## M7 records
+
+| Document | Topic | Status |
+|---|---|---|
+| [`m7-openalex-completion-contract.md`](m7-openalex-completion-contract.md) | OpenAlex window through 2026-08-30; `$1/day` hard stop; US resume; Trends production blockers recorded | **Program Control frozen** (TFO-M7-017-PC1) |
+
 ## M3 records
 
 | Document | Topic | Status |

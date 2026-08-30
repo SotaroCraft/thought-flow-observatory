@@ -164,10 +164,9 @@ def run_m4_graph_spo_smoke(*, live: bool = False) -> int:
 
 def _openalex_api_key_from_env() -> str | None:
     """Return configured OpenAlex API key, or None. Never log the value."""
-    value = os.getenv("THOUGHT_FLOW_OPENALEX_API_KEY")
-    if value is not None and not value.strip():
-        return None
-    return value
+    from thought_flow.ingestion.openalex.daily_cost_ledger import resolve_openalex_api_key
+
+    return resolve_openalex_api_key()
 
 
 def run_m5_openalex_smoke(*, live: bool = False, diagnostic_cell: bool = False) -> int:
@@ -318,11 +317,6 @@ def run_m7_openalex_backfill_canary(
     )
     from thought_flow.ingestion.openalex.window import RetrievalPartition, capture_run_end_date
 
-    settings = load_settings()
-    settings.ensure_directories()
-    checkpoint_dir = settings.manifests_dir / "openalex_backfill" / "checkpoints"
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
     day = date_cls.fromisoformat(source_date) if source_date else date_cls(2022, 12, 1)
     partition = RetrievalPartition.canary_day(country=country, source_date=day)
     run_end = capture_run_end_date()
@@ -342,7 +336,27 @@ def run_m7_openalex_backfill_canary(
         return 0
 
     oa_key = _openalex_api_key_from_env()
-    client = production_openalex_client(api_key=oa_key)
+    if not oa_key:
+        print(
+            json.dumps(
+                {
+                    "error": "live_requires_api_key",
+                    "message": (
+                        "M7 live OpenAlex requires THOUGHT_FLOW_OPENALEX_API_KEY "
+                        "(keyless live is prohibited)."
+                    ),
+                    "openalex_api_key_configured": False,
+                },
+                indent=2,
+            )
+        )
+        return 2
+
+    settings = load_settings()
+    settings.ensure_directories()
+    checkpoint_dir = settings.manifests_dir / "openalex_backfill" / "checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    client = production_openalex_client(api_key=oa_key, data_root=settings.data_root)
     result = run_openalex_partition_backfill(
         partition=partition,
         raw_dir=settings.raw_dir,
@@ -376,10 +390,6 @@ def run_m7_openalex_backfill_campaign(
     )
 
     settings = load_settings()
-    settings.ensure_directories()
-    checkpoint_dir = settings.manifests_dir / "openalex_backfill" / "checkpoints"
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
     range_start = date_cls.fromisoformat(from_date) if from_date else None
     range_end = date_cls.fromisoformat(to_date) if to_date else None
     frozen_end = date_cls.fromisoformat(run_end_date) if run_end_date else None
@@ -402,9 +412,32 @@ def run_m7_openalex_backfill_campaign(
         )
         return 2
 
+    if live and not oa_key:
+        print(
+            json.dumps(
+                {
+                    "error": "live_requires_api_key",
+                    "message": (
+                        "M7 live OpenAlex requires THOUGHT_FLOW_OPENALEX_API_KEY "
+                        "(keyless live is prohibited)."
+                    ),
+                    "openalex_api_key_configured": False,
+                },
+                indent=2,
+            )
+        )
+        return 2
+
+    settings.ensure_directories()
+    checkpoint_dir = settings.manifests_dir / "openalex_backfill" / "checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
     live_client = None
     if live:
-        live_client = production_openalex_client(api_key=oa_key)
+        live_client = production_openalex_client(
+            api_key=oa_key,
+            data_root=settings.data_root,
+        )
 
     try:
         result = run_openalex_backfill_campaign(

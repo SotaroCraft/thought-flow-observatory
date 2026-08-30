@@ -15,6 +15,8 @@ from typing import Any, Callable, Literal, Sequence
 
 from thought_flow.atomic_io import atomic_write_text
 from thought_flow.ingestion.openalex.backfill import (
+    FAILURE_COST_MODEL_MISMATCH,
+    FAILURE_DAILY_COST_CEILING,
     BackfillResult,
     production_openalex_client,
     run_openalex_partition_backfill,
@@ -24,6 +26,17 @@ from thought_flow.ingestion.openalex.checkpoint import (
     checkpoint_path,
     load_checkpoint,
     save_checkpoint,
+)
+from thought_flow.ingestion.openalex.daily_cost_ledger import (
+    CostModelMismatch,
+    DailyCostCeilingExceeded,
+    DailyCostGuard,
+    DailyCostLedgerError,
+    OPENALEX_BILLABLE_ATTEMPT_COST_USD,
+    OPENALEX_DAILY_COST_CEILING_USD,
+    credential_ledger_id,
+    default_ledger_root,
+    resolve_openalex_api_key,
 )
 from thought_flow.ingestion.openalex.planner import (
     CAMPAIGN_COUNTRIES,
@@ -94,6 +107,8 @@ class CampaignPlan:
     estimated_min_api_requests: int
     approximate_cost_usd: float | None
     partitions: list[PlannedPartitionView] = field(default_factory=list)
+    daily_cost_ceiling_usd: float | None = None
+    daily_cost_ledger: dict[str, Any] | None = None
 
     def to_public_summary(self, *, include_partition_list: bool = False) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -113,6 +128,8 @@ class CampaignPlan:
             "approximate_cost_usd": self.approximate_cost_usd,
             "network_access": False,
             "writes_raw_or_checkpoint": False,
+            "daily_cost_ceiling_usd": self.daily_cost_ceiling_usd,
+            "daily_cost_ledger": self.daily_cost_ledger,
         }
         if include_partition_list:
             payload["partitions"] = [asdict(p) for p in self.partitions]
@@ -237,7 +254,39 @@ def build_campaign_plan(
         estimated_min_api_requests=resume_n + fetch_n,
         approximate_cost_usd=None,
         partitions=views,
+        daily_cost_ceiling_usd=OPENALEX_DAILY_COST_CEILING_USD,
+        daily_cost_ledger=_dry_run_cost_ledger_view(checkpoint_dir),
     )
+
+
+def _dry_run_cost_ledger_view(checkpoint_dir: Path) -> dict[str, Any]:
+    """Read-only ledger snapshot for dry-run (no mutation)."""
+    # checkpoint_dir = .../manifests/openalex_backfill/checkpoints
+    data_root = checkpoint_dir.parents[2]
+    resolved = resolve_openalex_api_key()
+    if resolved is None:
+        return {
+            "credential_id": "keyless",
+            "ceiling_usd": OPENALEX_DAILY_COST_CEILING_USD,
+            "billable_attempt_cost_usd": OPENALEX_BILLABLE_ATTEMPT_COST_USD,
+            "accumulated_usd": 0.0,
+            "attempt_count": 0,
+            "live_execution_permitted": False,
+            "reason": "api_key_missing",
+        }
+    guard = DailyCostGuard(
+        ledger_root=default_ledger_root(data_root),
+        credential_id=credential_ledger_id(resolved),
+    )
+    try:
+        return guard.snapshot_readonly().to_public_dict()
+    except DailyCostLedgerError as exc:
+        return {
+            "error": "ledger_unreadable",
+            "message": str(exc)[:300],
+            "ceiling_usd": OPENALEX_DAILY_COST_CEILING_USD,
+            "live_execution_permitted": False,
+        }
 
 
 def _is_full_history_live_request(
@@ -327,6 +376,31 @@ def run_openalex_backfill_campaign(
             "Full-history live campaign is refused in this milestone; "
             "narrow --from-date/--to-date, or use dry-run for the full plan"
         )
+
+    # TFO-M7-017-PC1-R3: env key is authoritative; injected clients must match exactly.
+    env_credential = resolve_openalex_api_key()
+    if env_credential is None:
+        raise ValueError(
+            "M7 live OpenAlex requires THOUGHT_FLOW_OPENALEX_API_KEY "
+            "(keyless live is prohibited)"
+        )
+    expected_cred_id = credential_ledger_id(env_credential)
+    if client is not None:
+        client_key = getattr(client, "api_key", None) or None
+        if client_key != env_credential:
+            raise ValueError(
+                "M7 live client api_key must equal THOUGHT_FLOW_OPENALEX_API_KEY"
+            )
+        http = getattr(client, "http", None)
+        guard = getattr(http, "daily_cost_guard", None) if http is not None else None
+        if guard is None:
+            raise ValueError("M7 live requires DailyCostGuard on the OpenAlex client")
+        if getattr(guard, "credential_id", None) != expected_cred_id:
+            raise ValueError(
+                "M7 live DailyCostGuard credential_id must match resolved API key"
+            )
+    live_credential = env_credential
+
     requested_partitions = plan_daily_partitions(
         run_end_date=frozen_end,
         countries=live_countries,
@@ -453,14 +527,36 @@ def run_openalex_backfill_campaign(
                     coverage.unknown_country_works += ck.unknown_country_works
                 continue
 
+            if active_client is None:
+                active_client = production_openalex_client(
+                    data_root=checkpoint_dir.parents[2],
+                    api_key=live_credential,
+                )
+
+            # Between-date cost stop: peek only (no reservation); leave day unattempted.
+            guard = getattr(active_client.http, "daily_cost_guard", None)
+            if guard is not None:
+                try:
+                    guard.raise_if_next_attempt_blocked()
+                except (DailyCostCeilingExceeded, DailyCostLedgerError, CostModelMismatch) as exc:
+                    remaining = partitions[part_index:]
+                    coverage.unattempted_due_to_stop = len(remaining)
+                    had_partition_failure = True
+                    source_stop = True
+                    failure_category = (
+                        FAILURE_COST_MODEL_MISMATCH
+                        if isinstance(exc, CostModelMismatch)
+                        else FAILURE_DAILY_COST_CEILING
+                    )
+                    failure_message = str(exc)[:500]
+                    _sync_http_telemetry(coverage, active_client)
+                    break
+
             coverage.attempted += 1
             if action == "resume":
                 coverage.resumed += 1
             else:
                 coverage.fetched_new += 1
-
-            if active_client is None:
-                active_client = production_openalex_client()
 
             try:
                 result = run_openalex_partition_backfill(

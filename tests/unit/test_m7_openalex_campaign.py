@@ -36,6 +36,22 @@ from thought_flow.observability.manifest import start_manifest
 
 
 FIXED_END = date(2026, 8, 30)
+_TEST_KEY = "test-m7-key"
+
+
+@pytest.fixture(autouse=True)
+def _m7_campaign_test_credential(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("THOUGHT_FLOW_OPENALEX_API_KEY", _TEST_KEY)
+    monkeypatch.delenv("OPENALEX_API_KEY", raising=False)
+
+
+def _client(tmp_path: Path, transport):
+    return production_openalex_client(
+        transport=transport,
+        sleep_fn=lambda **_: None,
+        data_root=tmp_path,
+        api_key=_TEST_KEY,
+    )
 
 
 def _dirs(tmp_path: Path) -> tuple[Path, Path, Path]:
@@ -251,7 +267,7 @@ def test_campaign_mid_failure_aggregates_partial_not_success(tmp_path: Path) -> 
             return 200, {}, _page([], count=0)
         return 500, {}, b"boom"
 
-    client = production_openalex_client(transport=transport, sleep_fn=lambda **_: None)
+    client = _client(tmp_path, transport)
     result = run_openalex_backfill_campaign(
         raw_dir=raw,
         checkpoint_dir=ck,
@@ -281,7 +297,7 @@ def test_graceful_interrupt_is_not_success(tmp_path: Path) -> None:
     def transport(url: str, headers: dict[str, str], timeout: float):
         return 200, {}, _page([_work("W1", "ok", ["JP"])], count=1)
 
-    client = production_openalex_client(transport=transport, sleep_fn=lambda **_: None)
+    client = _client(tmp_path, transport)
     result = run_openalex_backfill_campaign(
         raw_dir=raw,
         checkpoint_dir=ck,
@@ -313,7 +329,7 @@ def test_interrupt_then_resume_skips_completed_partition(
         fetches.append(url)
         return 200, {}, _page([_work(f"W{len(fetches)}", "x", ["JP"])], count=1)
 
-    client = production_openalex_client(transport=transport, sleep_fn=lambda **_: None)
+    client = _client(tmp_path, transport)
     completed_partitions = {"n": 0}
 
     def stop_after_first_partition() -> bool:
@@ -379,7 +395,7 @@ def test_max_partitions_cap_is_partial_not_success(tmp_path: Path) -> None:
     def transport(url: str, headers: dict[str, str], timeout: float):
         return 200, {}, _page([], count=0)
 
-    client = production_openalex_client(transport=transport, sleep_fn=lambda **_: None)
+    client = _client(tmp_path, transport)
     result = run_openalex_backfill_campaign(
         raw_dir=raw,
         checkpoint_dir=ck,
@@ -456,7 +472,21 @@ def test_live_allows_bounded_one_week_window(tmp_path: Path) -> None:
 
     class _NoNetworkClient:
         def __init__(self) -> None:
-            self.http = type("H", (), {"budget": type("B", (), {"attempts_used": 0, "reported_cost_usd": None})()})()
+            from thought_flow.ingestion.openalex.daily_cost_ledger import credential_ledger_id
+
+            self.api_key = _TEST_KEY
+            self.http = type(
+                "H",
+                (),
+                {
+                    "budget": type(
+                        "B", (), {"attempts_used": 0, "reported_cost_usd": None}
+                    )(),
+                    "daily_cost_guard": type(
+                        "G", (), {"credential_id": credential_ledger_id(_TEST_KEY)}
+                    )(),
+                },
+            )()
 
         def fetch_works_page(self, *args: Any, **kwargs: Any) -> Any:
             raise AssertionError("network must not be used in this unit test")
@@ -590,7 +620,7 @@ def test_source_stop_on_persistent_429_before_first_page(tmp_path: Path) -> None
             return 200, {}, _page([], count=0)
         return 429, {"Retry-After": "43633"}, b'{"error":"rate"}'
 
-    client = production_openalex_client(transport=transport, sleep_fn=lambda **_: None)
+    client = _client(tmp_path, transport)
     result = run_openalex_backfill_campaign(
         raw_dir=raw,
         checkpoint_dir=ck,
@@ -634,7 +664,7 @@ def test_source_stop_on_persistent_429_after_persisted_page(tmp_path: Path) -> N
             return 429, {"Retry-After": "43633"}, b'{"error":"rate"}'
         raise AssertionError("later partitions must not be fetched")
 
-    client = production_openalex_client(transport=transport, sleep_fn=lambda **_: None)
+    client = _client(tmp_path, transport)
     result = run_openalex_backfill_campaign(
         raw_dir=raw,
         checkpoint_dir=ck,
@@ -670,7 +700,7 @@ def test_transient_429_recovers_and_continues(tmp_path: Path) -> None:
             return 429, {"Retry-After": "0"}, b'{"error":"rate"}'
         return 200, {}, _page([], count=0)
 
-    client = production_openalex_client(transport=transport, sleep_fn=lambda **_: None)
+    client = _client(tmp_path, transport)
     result = run_openalex_backfill_campaign(
         raw_dir=raw,
         checkpoint_dir=ck,
@@ -710,7 +740,7 @@ def test_source_stop_preserves_later_existing_checkpoints(tmp_path: Path) -> Non
             return 200, {}, _page([], count=0)
         return 500, {}, b"boom"
 
-    client = production_openalex_client(transport=transport, sleep_fn=lambda **_: None)
+    client = _client(tmp_path, transport)
     result = run_openalex_backfill_campaign(
         raw_dir=raw,
         checkpoint_dir=ck,
@@ -774,7 +804,7 @@ def test_cli_passes_openalex_api_key_to_campaign_client(
         max_partitions=1,
         run_end_date="2026-08-30",
     )
-    assert code2 in {0, 1}
+    assert code2 == 2
     assert captured.get("api_key") is None
 
 
@@ -908,7 +938,7 @@ def test_campaign_skip_normalizes_stale_success_failure_metadata(tmp_path: Path)
         calls["n"] += 1
         raise AssertionError("skip path must not HTTP")
 
-    client = production_openalex_client(transport=transport, sleep_fn=lambda **_: None)
+    client = _client(tmp_path, transport)
     result = run_openalex_backfill_campaign(
         raw_dir=raw,
         checkpoint_dir=ck,

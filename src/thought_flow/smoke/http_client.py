@@ -217,6 +217,8 @@ class SmokeHttpClient:
     user_agent: str = "thought-flow-observatory-m5-smoke (research; local)"
     timeout_seconds: float = 30.0
     sleep_fn: Callable[..., None] = _sleep_for_retry
+    # Optional production UTC-day hard stop (TFO-M7-017-PC1). Smoke leaves this None.
+    daily_cost_guard: Any | None = None
 
     def get(self, url: str, *, extra_headers: dict[str, str] | None = None) -> HttpResponse:
         from thought_flow.smoke.progress import progress
@@ -244,6 +246,11 @@ class SmokeHttpClient:
                 self.budget.stop_reason = "http_attempt_ceiling"
                 raise RuntimeError("HTTP attempt ceiling reached")
 
+            # Pre-request hard stop — before any network I/O for this attempt.
+            reservation_id: str | None = None
+            if self.daily_cost_guard is not None:
+                reservation_id = self.daily_cost_guard.authorize_next_attempt()
+
             progress(
                 "HTTP request start",
                 f"attempt={attempt}/{max_attempts} timeout_s={self.timeout_seconds} url={sanitized}",
@@ -265,6 +272,13 @@ class SmokeHttpClient:
                 # Count attempts per try; register header cost once for the
                 # terminal response (not on intermediate retries).
                 self.budget.register(attempts=1, cost_usd=None)
+                attempt_header_cost = _parse_cost(hdrs)
+                if self.daily_cost_guard is not None:
+                    # Every billable attempt (including retries) hits the daily ledger.
+                    self.daily_cost_guard.record_billable_attempt(
+                        source_reported_cost_usd=attempt_header_cost,
+                        reservation_id=reservation_id,
+                    )
                 last_status, last_headers, last_body = status, hdrs, body
                 progress(
                     "HTTP response received",
@@ -287,6 +301,13 @@ class SmokeHttpClient:
                 self.sleep_fn(attempt_index=attempt - 1, retry_after=retry_after)
                 continue
             except Exception as exc:  # noqa: BLE001 — classified for retry policy
+                # Cost-ceiling / ledger failures must not be swallowed as transport errors.
+                if type(exc).__name__ in {
+                    "DailyCostCeilingExceeded",
+                    "DailyCostLedgerError",
+                    "CostModelMismatch",
+                }:
+                    raise
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
                 attempts.append(
                     HttpAttemptRecord(
@@ -297,6 +318,13 @@ class SmokeHttpClient:
                     )
                 )
                 self.budget.register(attempts=1, cost_usd=None)
+                # Network exception after authorize: still a billable attempt risk;
+                # record unit cost via guard when present (fail-closed accounting).
+                if self.daily_cost_guard is not None:
+                    self.daily_cost_guard.record_billable_attempt(
+                        source_reported_cost_usd=None,
+                        reservation_id=reservation_id,
+                    )
                 progress(
                     "HTTP request error",
                     f"attempt={attempt} category={type(exc).__name__} elapsed_ms={elapsed_ms}",
@@ -308,7 +336,7 @@ class SmokeHttpClient:
                 raise
 
         assert last_status is not None
-        # One logical response → at most one header-cost registration.
+        # One logical response → at most one header-cost registration on in-process budget.
         header_cost = _parse_cost(last_headers)
         if header_cost is not None:
             self.budget.register(attempts=0, cost_usd=header_cost)
