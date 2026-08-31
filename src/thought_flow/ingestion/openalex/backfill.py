@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -19,7 +20,12 @@ from thought_flow.ingestion.openalex.window import (
     RetrievalPartition,
     capture_run_end_date,
 )
-from thought_flow.ingestion.raw_store import persist_raw_record
+from thought_flow.ingestion.raw_store import (
+    LegacyContentIndex,
+    persist_raw_record,
+    preload_legacy_content_index,
+)
+from thought_flow.ingestion.stage_timing import PageStageTiming, StageTimingSession, timed_span
 from thought_flow.observability.identity import new_run_identity
 from thought_flow.observability.manifest import RunManifest, start_manifest
 from thought_flow.config.settings import load_settings
@@ -244,6 +250,9 @@ class OpenAlexBackfillRunner:
         clock: Callable[[], datetime] | None = None,
         run_end_date: date | None = None,
         run_end_clock: Callable[[], date] | None = None,
+        stage_timing: StageTimingSession | None = None,
+        legacy_content_index: LegacyContentIndex | None = None,
+        preload_legacy_content: bool = True,
     ) -> None:
         self.raw_dir = raw_dir
         self.checkpoint_dir = checkpoint_dir
@@ -254,12 +263,25 @@ class OpenAlexBackfillRunner:
         self.clock = clock
         self._run_end_date = run_end_date
         self._run_end_clock = run_end_clock
+        self.stage_timing = stage_timing if stage_timing is not None else StageTimingSession()
+        self._preload_legacy_content = preload_legacy_content
+        self.legacy_content_index = legacy_content_index
         # Assert production path is not wired to smoke page ceilings.
         from thought_flow.smoke.openalex import client as smoke_client
 
         if self.per_page == smoke_client.MAX_PAGES_PER_CELL:
             # Soft guard only when someone accidentally sets per_page to the page ceiling.
             pass
+
+    def _ensure_legacy_content_index(self) -> LegacyContentIndex | None:
+        if not self._preload_legacy_content:
+            return self.legacy_content_index
+        if self.legacy_content_index is None:
+            self.legacy_content_index = preload_legacy_content_index(self.raw_dir)
+            self.stage_timing.legacy_preload_seconds = self.legacy_content_index.preload_seconds
+            self.stage_timing.legacy_preload_identities = self.legacy_content_index.identity_count
+            self.stage_timing.legacy_preload_memory_bytes = self.legacy_content_index.memory_bytes
+        return self.legacy_content_index
 
     @property
     def has_smoke_page_ceiling(self) -> bool:
@@ -275,6 +297,8 @@ class OpenAlexBackfillRunner:
         run_end_date = self._resolve_run_end_date()
         # Freeze end date on the instance so it cannot drift mid-run.
         self._run_end_date = run_end_date
+        # Bounded run init: load legacy flat content identities once (P1).
+        self._ensure_legacy_content_index()
 
         run_id = new_run_identity()
         manifest = start_manifest(
@@ -520,12 +544,18 @@ class OpenAlexBackfillRunner:
                 continue
 
             try:
-                payload, meta = self.client.fetch_works_page(
-                    filter_expr=partition.filter_expr,
-                    search=None,
-                    cursor=cursor,
-                    per_page=self.per_page,
-                )
+                page_t0 = time.perf_counter()
+                timing = PageStageTiming(page_index=page_index)
+                with timed_span(lambda s: setattr(timing, "http_seconds", s)):
+                    payload, meta = self.client.fetch_works_page(
+                        filter_expr=partition.filter_expr,
+                        search=None,
+                        cursor=cursor,
+                        per_page=self.per_page,
+                    )
+                # Client returns already-parsed JSON; attribute residual parse as 0 unless
+                # transport-level decode is separately measured (kept for schema stability).
+                timing.json_parse_seconds = 0.0
             except (DailyCostCeilingExceeded, DailyCostLedgerError) as exc:
                 checkpoint.failure_category = FAILURE_DAILY_COST_CEILING
                 checkpoint.failure_message = str(exc)[:500]
@@ -585,6 +615,10 @@ class OpenAlexBackfillRunner:
             observed_at = _utc_now_iso(self.clock)
             page_work_ids: list[str] = []
             page_content_ids: list[str] = []
+            page_content_new = 0
+            page_content_reused = 0
+            page_content_persist = 0.0
+            page_prov_persist = 0.0
 
             query_meta = {
                 "partition_id": partition.partition_id,
@@ -605,6 +639,7 @@ class OpenAlexBackfillRunner:
                 work_id = str(work.get("id") or "")
                 if not work_id:
                     continue
+                proj_t0 = time.perf_counter()
                 envelope = project_work_to_privacy_reduced(
                     work,
                     observed_at=observed_at,
@@ -616,6 +651,7 @@ class OpenAlexBackfillRunner:
                 # retries reuse the same immutable object. Retrieval time lives on provenance.
                 persist_payload = content_identity_payload(envelope)
                 persist_payload["raw_content_identity"] = envelope["raw_content_identity"]
+                timing.projection_seconds += time.perf_counter() - proj_t0
                 result = persist_raw_record(
                     raw_dir=self.raw_dir,
                     run_identity=run_id,
@@ -626,9 +662,15 @@ class OpenAlexBackfillRunner:
                     quality_state="unknown"
                     if envelope.get("missing_country")
                     else "success",
+                    legacy_content_index=self.legacy_content_index,
                 )
+                page_content_persist += result.timings.content_persist_seconds
+                page_prov_persist += result.timings.provenance_persist_seconds
                 if result.content_was_new:
                     works_content_new += 1
+                    page_content_new += 1
+                else:
+                    page_content_reused += 1
                 page_work_ids.append(work_id)
                 page_content_ids.append(result.raw_content_identity)
                 collected_ids.append(result.raw_content_identity)
@@ -648,7 +690,18 @@ class OpenAlexBackfillRunner:
             )
             checkpoint.record_page(completed)
             # Persist checkpoint after each page so retry exhaustion keeps written evidence.
-            save_checkpoint(checkpoint_path(self.checkpoint_dir, partition.partition_id), checkpoint)
+            with timed_span(lambda s: setattr(timing, "checkpoint_seconds", s)):
+                save_checkpoint(
+                    checkpoint_path(self.checkpoint_dir, partition.partition_id), checkpoint
+                )
+
+            timing.content_persist_seconds = page_content_persist
+            timing.provenance_persist_seconds = page_prov_persist
+            timing.works_count = len(page_work_ids)
+            timing.content_new = page_content_new
+            timing.content_reused = page_content_reused
+            timing.total_seconds = time.perf_counter() - page_t0
+            self.stage_timing.record_page(timing)
 
             page_index += 1
             if loop_failed:
@@ -686,6 +739,9 @@ def run_openalex_partition_backfill(
     run_end_date: date | None = None,
     run_end_clock: Callable[[], date] | None = None,
     clock: Callable[[], datetime] | None = None,
+    stage_timing: StageTimingSession | None = None,
+    legacy_content_index: LegacyContentIndex | None = None,
+    preload_legacy_content: bool = True,
 ) -> BackfillResult:
     runner = OpenAlexBackfillRunner(
         raw_dir=raw_dir,
@@ -697,6 +753,9 @@ def run_openalex_partition_backfill(
         clock=clock,
         run_end_date=run_end_date,
         run_end_clock=run_end_clock,
+        stage_timing=stage_timing,
+        legacy_content_index=legacy_content_index,
+        preload_legacy_content=preload_legacy_content,
     )
     return runner.run_partition(partition)
 

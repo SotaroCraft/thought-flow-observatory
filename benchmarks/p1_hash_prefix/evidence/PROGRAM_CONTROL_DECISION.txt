@@ -1,0 +1,26 @@
+P1 Preservation — Program Control Decision
+
+Status:
+  IMPLEMENTED
+  CORRECTNESS_VERIFIED
+  PERFORMANCE_LIVE_UNVALIDATED
+  NOT_ADOPTED_TO_MAIN
+
+Gate / validation:
+  P1 HARD GATE: PASS
+  P1 SUFFICIENT: YES (absolute isolated metrics)
+  Isolated benchmark did NOT reproduce the live NTFS pathology.
+  Live speedup: UNVALIDATED (BENCHMARK_INCONCLUSIVE_FOR_LIVE_SPEEDUP)
+
+Interpretation:
+  P1 is preserved on branch tfo-m7-p1-hash-prefix-sharding as an available
+  remediation candidate for Source Acquisition Raw persistence.
+  It is NOT an adopted architecture on main.
+
+Evidence artifact:
+  p1_ab_result_285231d5.json
+
+Explicit non-actions:
+  not merged to main
+  P2/P3/P4/P5 not started
+  M7-019 / live workspace-data not interacted with

@@ -7,6 +7,7 @@ from pathlib import Path
 import pyarrow.parquet as pq
 
 from thought_flow.ingestion.raw_store import (
+    iter_content_artifact_paths,
     load_content_payload,
     load_run_provenance,
     persist_raw_record,
@@ -105,7 +106,7 @@ def test_same_record_across_runs_reuses_content_without_overwrite(tmp_path: Path
     assert second.content_was_new is False
     assert first.content_store_path == second.content_store_path
     assert first.run_artifact_path != second.run_artifact_path
-    assert list((raw_dir / "content").glob("*.parquet")) == [first.content_store_path]
+    assert list(iter_content_artifact_paths(raw_dir)) == [first.content_store_path]
     assert second.content_store_path.read_bytes() == first_bytes
     assert second.content_store_path.stat().st_mtime_ns == first_mtime
 
@@ -145,7 +146,7 @@ def test_different_records_identical_payload_share_content_keep_provenance(tmp_p
     assert result_a.content_store_path == result_b.content_store_path
     assert result_a.content_was_new is True
     assert result_b.content_was_new is False
-    assert len(list((raw_dir / "content").glob("*.parquet"))) == 1
+    assert len(list(iter_content_artifact_paths(raw_dir))) == 1
 
     content_cols = set(pq.read_table(result_a.content_store_path).column_names)
     assert content_cols == {"raw_content_identity", "payload_json"}
