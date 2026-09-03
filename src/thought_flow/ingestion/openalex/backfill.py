@@ -19,7 +19,7 @@ from thought_flow.ingestion.openalex.window import (
     RetrievalPartition,
     capture_run_end_date,
 )
-from thought_flow.ingestion.raw_store import persist_raw_record
+from thought_flow.ingestion.raw_store import RawPageRecord, persist_raw_page_batch
 from thought_flow.observability.identity import new_run_identity
 from thought_flow.observability.manifest import RunManifest, start_manifest
 from thought_flow.config.settings import load_settings
@@ -254,6 +254,7 @@ class OpenAlexBackfillRunner:
         self.clock = clock
         self._run_end_date = run_end_date
         self._run_end_clock = run_end_clock
+        self._packed_content_paths: dict[str, Path] = {}
         # Assert production path is not wired to smoke page ceilings.
         from thought_flow.smoke.openalex import client as smoke_client
 
@@ -585,6 +586,7 @@ class OpenAlexBackfillRunner:
             observed_at = _utc_now_iso(self.clock)
             page_work_ids: list[str] = []
             page_content_ids: list[str] = []
+            page_records: list[RawPageRecord] = []
 
             query_meta = {
                 "partition_id": partition.partition_id,
@@ -616,24 +618,32 @@ class OpenAlexBackfillRunner:
                 # retries reuse the same immutable object. Retrieval time lives on provenance.
                 persist_payload = content_identity_payload(envelope)
                 persist_payload["raw_content_identity"] = envelope["raw_content_identity"]
-                result = persist_raw_record(
-                    raw_dir=self.raw_dir,
-                    run_identity=run_id,
-                    source_identity=SOURCE_IDENTITY,
-                    logical_key=_work_logical_key(work_id),
-                    payload=persist_payload,
-                    ingestion_time=observed_at,
-                    quality_state="unknown"
-                    if envelope.get("missing_country")
-                    else "success",
-                )
-                if result.content_was_new:
-                    works_content_new += 1
                 page_work_ids.append(work_id)
-                page_content_ids.append(result.raw_content_identity)
-                collected_ids.append(result.raw_content_identity)
+                page_records.append(
+                    RawPageRecord(
+                        logical_key=_work_logical_key(work_id),
+                        payload=persist_payload,
+                        ingestion_time=observed_at,
+                        quality_state="unknown"
+                        if envelope.get("missing_country")
+                        else "success",
+                    )
+                )
                 if envelope.get("missing_country"):
                     checkpoint.unknown_country_works += 1
+
+            page_results = persist_raw_page_batch(
+                raw_dir=self.raw_dir,
+                run_identity=run_id,
+                source_identity=SOURCE_IDENTITY,
+                records=page_records,
+                known_packed_paths=self._packed_content_paths,
+            )
+            for result in page_results:
+                if result.content_was_new:
+                    works_content_new += 1
+                page_content_ids.append(result.raw_content_identity)
+                collected_ids.append(result.raw_content_identity)
 
             loop_failed = loop_reason is not None
             completed = CompletedPage(

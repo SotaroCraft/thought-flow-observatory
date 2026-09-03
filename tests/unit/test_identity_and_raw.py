@@ -7,8 +7,11 @@ from pathlib import Path
 import pyarrow.parquet as pq
 
 from thought_flow.ingestion.raw_store import (
+    RawPageRecord,
+    iter_content_parquet_paths,
     load_content_payload,
     load_run_provenance,
+    persist_raw_page_batch,
     persist_raw_record,
 )
 from thought_flow.observability.identity import (
@@ -166,3 +169,69 @@ def test_different_records_identical_payload_share_content_keep_provenance(tmp_p
     assert prov_b.source_identity != prov_a.source_identity
     assert prov_b.logical_key != prov_a.logical_key
     assert prov_b.ingestion_time != prov_a.ingestion_time
+
+
+def test_page_batch_writes_two_files_and_reuses_legacy_flat(tmp_path: Path) -> None:
+    raw_dir = tmp_path / "raw"
+    run_legacy = new_run_identity()
+    run_pack = new_run_identity()
+    other_payload = {**SAMPLE_PAYLOAD, "title": "second work"}
+
+    legacy = persist_raw_record(
+        raw_dir=raw_dir,
+        run_identity=run_legacy,
+        source_identity="synthetic.m1_smoke",
+        logical_key="sample-001",
+        payload=SAMPLE_PAYLOAD,
+        ingestion_time="2026-09-03T00:00:00Z",
+    )
+    legacy_mtime = legacy.content_store_path.stat().st_mtime_ns
+    packed: dict[str, Path] = {}
+
+    results = persist_raw_page_batch(
+        raw_dir=raw_dir,
+        run_identity=run_pack,
+        source_identity="openalex.works",
+        known_packed_paths=packed,
+        records=[
+            RawPageRecord(
+                logical_key="work:W1",
+                payload=SAMPLE_PAYLOAD,
+                ingestion_time="2026-09-03T01:00:00Z",
+            ),
+            RawPageRecord(
+                logical_key="work:W2",
+                payload=other_payload,
+                ingestion_time="2026-09-03T01:00:00Z",
+            ),
+        ],
+    )
+    assert results[0].content_was_new is False
+    assert results[0].content_store_path == legacy.content_store_path
+    assert results[1].content_was_new is True
+    assert results[1].content_store_path != legacy.content_store_path
+    assert legacy.content_store_path.stat().st_mtime_ns == legacy_mtime
+    # One legacy flat file + one new content pack.
+    assert len(list(iter_content_parquet_paths(raw_dir))) == 2
+    assert len(list((raw_dir / "runs" / run_pack / "pages").glob("*.parquet"))) == 1
+    assert load_content_payload(
+        results[1].content_store_path, content_id=results[1].raw_content_identity
+    ) == other_payload
+
+    overlap = persist_raw_page_batch(
+        raw_dir=raw_dir,
+        run_identity=run_pack,
+        source_identity="openalex.works",
+        known_packed_paths=packed,
+        records=[
+            RawPageRecord(
+                logical_key="work:W2",
+                payload=other_payload,
+                ingestion_time="2026-09-03T01:01:00Z",
+            )
+        ],
+    )
+    assert overlap[0].content_was_new is False
+    assert overlap[0].content_store_path == results[1].content_store_path
+    # Overlap writes provenance only; no second content pack.
+    assert len(list(iter_content_parquet_paths(raw_dir))) == 2

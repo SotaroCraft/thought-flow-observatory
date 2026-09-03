@@ -2,14 +2,20 @@
 
 Content store holds payload-only objects addressed by raw_content_identity.
 Per-run provenance artifacts reference that content and never rewrite it.
+
+New OpenAlex backfill pages may write packed multi-row Parquet under
+``content/packs/`` and ``runs/<run>/pages/`` (two files per page) to avoid
+NTFS create-amplification. Legacy flat ``content/<id>.parquet`` remains
+readable and is never migrated, rewritten, or deleted.
 """
 
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Iterator
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -62,6 +68,34 @@ def _run_artifact_path(raw_dir: Path, run_id: str, record_id: str) -> Path:
     return raw_dir / "runs" / run_id / f"{record_id}.parquet"
 
 
+def _pack_content_path(raw_dir: Path, run_id: str, pack_id: str) -> Path:
+    return raw_dir / "content" / "packs" / run_id / f"{pack_id}.parquet"
+
+
+def _pack_provenance_path(raw_dir: Path, run_id: str, pack_id: str) -> Path:
+    return raw_dir / "runs" / run_id / "pages" / f"{pack_id}.parquet"
+
+
+def iter_content_parquet_paths(raw_dir: Path) -> Iterator[Path]:
+    """Legacy flat files plus packed page files. Does not migrate anything."""
+    content = raw_dir / "content"
+    if content.is_dir():
+        for path in content.glob("*.parquet"):
+            if path.is_file():
+                yield path
+        packs = content / "packs"
+        if packs.is_dir():
+            yield from (p for p in packs.rglob("*.parquet") if p.is_file())
+
+
+@dataclass(frozen=True)
+class RawPageRecord:
+    logical_key: str
+    payload: dict[str, Any]
+    quality_state: str = "success"
+    ingestion_time: str = ""
+
+
 def _content_table(*, content_id: str, payload: dict[str, Any]) -> pa.Table:
     return pa.table(
         {
@@ -94,8 +128,12 @@ def load_run_provenance(path: Path) -> RunProvenance:
     )
 
 
-def load_content_payload(path: Path) -> dict[str, Any]:
-    """Load payload-only content object; rejects provenance columns."""
+def load_content_payload(path: Path, *, content_id: str | None = None) -> dict[str, Any]:
+    """Load payload-only content object; rejects provenance columns.
+
+    Single-row (legacy flat) files load as before. Packed files require
+    ``content_id`` when they contain more than one row.
+    """
     table = pq.read_table(path)
     names = set(table.column_names)
     leaked = sorted(names & _PROVENANCE_KEYS)
@@ -103,9 +141,16 @@ def load_content_payload(path: Path) -> dict[str, Any]:
         raise ValueError(f"Content object contains provenance columns: {leaked}")
     if "payload_json" not in names or "raw_content_identity" not in names:
         raise ValueError(f"Content object missing required columns: {path}")
-    if table.num_rows != 1:
+    if table.num_rows == 1:
+        return json.loads(table.column("payload_json")[0].as_py())
+    if content_id is None:
         raise ValueError(f"Expected single-row content object, got {table.num_rows}: {path}")
-    return json.loads(table.column("payload_json")[0].as_py())
+    ids = table.column("raw_content_identity")
+    payloads = table.column("payload_json")
+    for i in range(table.num_rows):
+        if ids[i].as_py() == content_id:
+            return json.loads(payloads[i].as_py())
+    raise KeyError(f"content_id {content_id!r} not found in pack {path}")
 
 
 def persist_raw_record(
@@ -171,3 +216,106 @@ def persist_raw_record(
         content_was_new=content_was_new,
         payload=payload,
     )
+
+
+def persist_raw_page_batch(
+    *,
+    raw_dir: Path,
+    run_identity: str,
+    source_identity: str,
+    records: Iterable[RawPageRecord],
+    known_packed_paths: dict[str, Path] | None = None,
+) -> list[RawPersistResult]:
+    """Persist one OpenAlex page as at most two new Parquet files.
+
+    - Existing flat ``content/<id>.parquet`` is reused and never overwritten.
+    - New content rows go to ``content/packs/<run>/<pack_id>.parquet``.
+    - Provenance rows go to ``runs/<run>/pages/<pack_id>.parquet``.
+    - Same-run page overlap reuses packed identities via ``known_packed_paths``.
+    """
+    packed = known_packed_paths if known_packed_paths is not None else {}
+    pack_id = uuid.uuid4().hex
+    content_pack = _pack_content_path(raw_dir, run_identity, pack_id)
+    prov_pack = _pack_provenance_path(raw_dir, run_identity, pack_id)
+    if content_pack.exists() or prov_pack.exists():
+        raise FileExistsError(f"Pack artifact already exists (refusing overwrite): {pack_id}")
+
+    content_ids: list[str] = []
+    payloads_json: list[str] = []
+    prov_cols: dict[str, list[Any]] = {
+        "run_identity": [],
+        "record_identity": [],
+        "source_identity": [],
+        "logical_key": [],
+        "ingestion_time": [],
+        "quality_state": [],
+        "raw_content_identity": [],
+        "content_store_path": [],
+        "content_was_new": [],
+    }
+    results: list[RawPersistResult] = []
+
+    for rec in records:
+        rec_id = record_identity(source_identity=source_identity, logical_key=rec.logical_key)
+        content_id = raw_content_identity(rec.payload)
+        incoming_norm = json.dumps(rec.payload, sort_keys=True, ensure_ascii=False)
+        flat_path = _content_store_path(raw_dir, content_id)
+
+        if flat_path.exists():
+            if not flat_path.is_file():
+                raise FileExistsError(f"Content path exists but is not a file: {flat_path}")
+            existing = load_content_payload(flat_path)
+            existing_norm = json.dumps(existing, sort_keys=True, ensure_ascii=False)
+            if existing_norm != incoming_norm:
+                raise FileExistsError(
+                    f"Content conflict at existing Raw identity (refusing overwrite): {flat_path}"
+                )
+            content_path = flat_path
+            content_was_new = False
+        elif content_id in packed:
+            content_path = packed[content_id]
+            content_was_new = False
+        else:
+            content_ids.append(content_id)
+            payloads_json.append(incoming_norm)
+            content_path = content_pack
+            content_was_new = True
+            packed[content_id] = content_pack
+
+        prov_cols["run_identity"].append(run_identity)
+        prov_cols["record_identity"].append(rec_id)
+        prov_cols["source_identity"].append(source_identity)
+        prov_cols["logical_key"].append(rec.logical_key)
+        prov_cols["ingestion_time"].append(rec.ingestion_time)
+        prov_cols["quality_state"].append(rec.quality_state)
+        prov_cols["raw_content_identity"].append(content_id)
+        prov_cols["content_store_path"].append(str(content_path))
+        prov_cols["content_was_new"].append(content_was_new)
+        results.append(
+            RawPersistResult(
+                record_identity=rec_id,
+                raw_content_identity=content_id,
+                run_artifact_path=prov_pack,
+                content_store_path=content_path,
+                content_was_new=content_was_new,
+                payload=rec.payload,
+            )
+        )
+
+    if not results:
+        return []
+
+    if content_ids:
+        content_pack.parent.mkdir(parents=True, exist_ok=True)
+        pq.write_table(
+            pa.table(
+                {
+                    "raw_content_identity": content_ids,
+                    "payload_json": payloads_json,
+                }
+            ),
+            content_pack,
+        )
+    prov_pack.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(pa.table(prov_cols), prov_pack)
+    return results

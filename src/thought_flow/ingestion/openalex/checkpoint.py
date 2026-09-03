@@ -105,7 +105,9 @@ class PartitionCheckpoint:
                 )
             return
         self.pages.append(page)
-        self.works_persisted = sum(len(p.raw_content_identities) for p in self.pages)
+        # Avoid O(n^2) recomputation of works_persisted as pages grow.
+        # Semantics are identical because each CompletedPage's raw_content_identities length is stable.
+        self.works_persisted += len(page.raw_content_identities)
         self.next_cursor = page.next_cursor
         if page.next_cursor is None:
             self.exhausted = True
@@ -219,5 +221,10 @@ def save_checkpoint(path: Path, checkpoint: PartitionCheckpoint) -> Path:
     path = Path(path)
     if path.suffix == ".tmp" or path.name.startswith("."):
         raise ValueError(f"Refusing to publish checkpoint to temporary path: {path}")
-    text = json.dumps(checkpoint.to_dict(), indent=2, ensure_ascii=False) + "\n"
+    # Compact JSON reduces write amplification for large checkpoints.
+    # Formatting is not semantically significant (load_checkpoint uses json.loads).
+    text = (
+        json.dumps(checkpoint.to_dict(), separators=(",", ":"), ensure_ascii=False)
+        + "\n"
+    )
     return atomic_write_text(path, text)

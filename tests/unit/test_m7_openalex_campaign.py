@@ -687,7 +687,9 @@ def test_source_stop_on_persistent_429_after_persisted_page(tmp_path: Path) -> N
     day1 = json.loads((ck / "openalex_JP_2022-12-01.json").read_text(encoding="utf-8"))
     assert day1["coverage_status"] == "partial"
     assert day1["works_persisted"] == 1
-    assert list((raw / "content").glob("*.parquet"))
+    from thought_flow.ingestion.raw_store import iter_content_parquet_paths
+
+    assert list(iter_content_parquet_paths(raw))
 
 
 def test_transient_429_recovers_and_continues(tmp_path: Path) -> None:

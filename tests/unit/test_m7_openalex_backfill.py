@@ -25,7 +25,11 @@ from thought_flow.ingestion.openalex.window import (
     RetrievalPartition,
     capture_run_end_date,
 )
-from thought_flow.ingestion.raw_store import load_content_payload, persist_raw_record
+from thought_flow.ingestion.raw_store import (
+    iter_content_parquet_paths,
+    load_content_payload,
+    persist_raw_record,
+)
 from thought_flow.observability.identity import new_run_identity, raw_content_identity
 from thought_flow.smoke.http_client import MAX_RETRIES, SmokeHttpClient
 from thought_flow.smoke.openalex.client import (
@@ -415,7 +419,7 @@ def test_failure_after_persisted_pages_is_partial(tmp_path: Path) -> None:
     assert result.coverage_status != "success"
     assert result.pages_completed == 1
     assert result.works_persisted == 1
-    assert list((raw / "content").glob("*.parquet"))
+    assert list(iter_content_parquet_paths(raw))
 
 
 def test_retry_honors_existing_retry_contract(tmp_path: Path) -> None:
@@ -481,7 +485,7 @@ def test_resume_skips_completed_immutable_pages(tmp_path: Path) -> None:
     )
     assert first.coverage_status == "partial"
     assert first.pages_completed == 1
-    content_files_after_first = sorted(p.name for p in (raw / "content").glob("*.parquet"))
+    content_files_after_first = sorted(p.name for p in iter_content_parquet_paths(raw))
 
     phase["resume"] = True
     fetched.clear()
@@ -498,9 +502,9 @@ def test_resume_skips_completed_immutable_pages(tmp_path: Path) -> None:
     assert second.coverage_status == "success"
     assert second.pages_completed == 2
     assert second.works_persisted == 2
-    assert sorted(p.name for p in (raw / "content").glob("*.parquet")) != []
+    assert sorted(p.name for p in iter_content_parquet_paths(raw)) != []
     # First page content untouched.
-    assert content_files_after_first[0] in {p.name for p in (raw / "content").glob("*.parquet")}
+    assert content_files_after_first[0] in {p.name for p in iter_content_parquet_paths(raw)}
 
 
 def test_rerun_completed_partition_does_not_duplicate(tmp_path: Path) -> None:
@@ -521,7 +525,7 @@ def test_rerun_completed_partition_does_not_duplicate(tmp_path: Path) -> None:
         client=client,
         run_end_date=date(2026, 8, 30),
     )
-    content_count = len(list((raw / "content").glob("*.parquet")))
+    content_count = len(list(iter_content_parquet_paths(raw)))
     ck_data = load_checkpoint(first.checkpoint_path)
     assert ck_data is not None
     page_count = len(ck_data.pages)
@@ -536,7 +540,7 @@ def test_rerun_completed_partition_does_not_duplicate(tmp_path: Path) -> None:
     )
     assert second.coverage_status == "success"
     assert fetches["n"] == 1  # no refetch
-    assert len(list((raw / "content").glob("*.parquet"))) == content_count
+    assert len(list(iter_content_parquet_paths(raw))) == content_count
     ck_data2 = load_checkpoint(second.checkpoint_path)
     assert ck_data2 is not None
     assert len(ck_data2.pages) == page_count
@@ -602,7 +606,7 @@ def test_multi_country_structured_evidence_survives_raw(tmp_path: Path) -> None:
         run_end_date=date(2026, 8, 30),
     )
     assert result.coverage_status == "success"
-    content_path = next((raw / "content").glob("*.parquet"))
+    content_path = next(iter_content_parquet_paths(raw))
     payload = load_content_payload(content_path)
     assert payload["authorship_countries"] == ["JP", "US"]
     assert payload["multi_country"] is True
@@ -628,13 +632,13 @@ def test_absent_country_evidence_remains_unknown_not_zero(tmp_path: Path) -> Non
     )
     assert result.unknown_country_works == 1
     assert result.coverage_status == "success"  # retrieval succeeded; attribute unknown ≠ zero
-    payload = load_content_payload(next((raw / "content").glob("*.parquet")))
+    payload = load_content_payload(next(iter_content_parquet_paths(raw)))
     assert payload["missing_country"] is True
     assert payload["authorship_countries"] == []
     assert payload["country_evidence"] == []
     # Provenance quality_state is unknown, not coerced to numeric zero.
     run_dir = raw / "runs" / result.run_identity
-    prov = pq.read_table(next(run_dir.glob("*.parquet")))
+    prov = pq.read_table(next(run_dir.rglob("*.parquet")))
     assert prov.column("quality_state")[0].as_py() == "unknown"
 
 
